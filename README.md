@@ -78,6 +78,10 @@ authenticated OpenCode provider, e.g. `opencode auth login` / OpenCode Zen.
 
 Checksums are published next to the binaries in the release (`SHA256SUMS`).
 
+For everything else — first-run opencode install, the full flag reference,
+embedding the local JSON server into another app, building from source, and
+the CI/release pipeline — see [the binaries user guide](docs/binaries.md).
+
 ## Install
 
 ```bash
