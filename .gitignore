@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+*.egg
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+
+# Local data
+results/
+*.sqlite3
