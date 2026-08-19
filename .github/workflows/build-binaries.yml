@@ -40,15 +40,19 @@ jobs:
           - target: linux-x86_64
             runs-on: blacksmith-4vcpu-ubuntu-2404
             artifact: music-copyright-checker
+            ext: ""
           - target: linux-aarch64
             runs-on: blacksmith-4vcpu-ubuntu-2404-arm
             artifact: music-copyright-checker
+            ext: ""
           - target: windows-x86_64
             runs-on: blacksmith-4vcpu-windows-2025
             artifact: music-copyright-checker.exe
+            ext: ".exe"
           - target: macos-aarch64
             runs-on: blacksmith-6vcpu-macos-latest
             artifact: music-copyright-checker
+            ext: ""
 
     steps:
       - name: Checkout
@@ -88,11 +92,19 @@ jobs:
         shell: bash
         run: python packaging/smoke_test.py "dist/${{ matrix.artifact }}"
 
+      - name: Rename binary with version and target
+        id: rename
+        shell: bash
+        run: |
+          name="music-copyright-checker-${{ steps.version.outputs.version }}-${{ matrix.target }}${{ matrix.ext }}"
+          mv "dist/${{ matrix.artifact }}" "dist/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
       - name: Upload binary as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: music-copyright-checker-${{ steps.version.outputs.version }}-${{ matrix.target }}
-          path: dist/${{ matrix.artifact }}
+          name: ${{ steps.rename.outputs.name }}
+          path: dist/${{ steps.rename.outputs.name }}
           if-no-files-found: error
 
   release:
