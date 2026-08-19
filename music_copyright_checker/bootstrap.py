@@ -97,12 +97,17 @@ def resolve_opencode(binary: str = "opencode") -> Optional[str]:
 
 
 def _stream_output(process: subprocess.Popen) -> None:
-    """Forward a subprocess's stdout/stderr to ours so installs stay visible."""
+    """Forward a subprocess's stdout/stderr to ours so installs stay visible.
+
+    Everything is sent to *our* stderr: the CLI result (the JSON document)
+    is written to stdout and must not be polluted by installer banners,
+    progress bars, or download output.
+    """
     assert process.stdout is not None
     assert process.stderr is not None
     for line in process.stdout:
-        print(line, end="")
-        sys.stdout.flush()
+        print(line, end="", file=sys.stderr)
+        sys.stderr.flush()
     for line in process.stderr:
         print(line, end="", file=sys.stderr)
         sys.stderr.flush()

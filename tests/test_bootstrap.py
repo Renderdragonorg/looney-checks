@@ -2,21 +2,41 @@
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
 from music_copyright_checker.bootstrap import (
     _binary_name,
+    _stream_output,
     ensure_opencode,
     ensure_ssl_certs,
     install_dir,
     resolve_opencode,
 )
 from music_copyright_checker.errors import OpenCodeNotInstalledError
+
+
+class FakePopen:
+    def __init__(self, stdout_lines, stderr_lines):
+        self.stdout = iter(stdout_lines)
+        self.stderr = iter(stderr_lines)
+
+
+class TestStreamOutput(unittest.TestCase):
+    def test_streams_everything_to_stderr_only(self):
+        process = FakePopen(["banner line 1\n", "banner line 2\n"], ["progress 1\n", "progress 2\n"])
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            _stream_output(process)
+        self.assertEqual(out.getvalue(), "", "installer output must not pollute stdout")
+        self.assertIn("banner line 1", err.getvalue())
+        self.assertIn("progress 2", err.getvalue())
 
 
 class TestResolveOpencode(unittest.TestCase):
