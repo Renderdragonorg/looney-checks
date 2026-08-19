@@ -41,7 +41,11 @@ def main() -> int:
 
     print("== HTTPS reachability (CA bundle sanity) ==")
     try:
-        with urllib.request.urlopen("https://opencode.ai", timeout=20) as response:
+        request = urllib.request.Request(
+            "https://opencode.ai/install",
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; music-copyright-checker/0.2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"},
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
             if response.status != 200:
                 raise RuntimeError(f"unexpected status {response.status}")
     except Exception as exc:
@@ -52,6 +56,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    print("HTTPS check passed")
 
     print("== local server (no jobs) ==")
     port = free_port()

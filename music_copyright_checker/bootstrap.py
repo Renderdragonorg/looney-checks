@@ -33,6 +33,11 @@ from .errors import OpenCodeNotInstalledError
 OPENCODE_INSTALL_URL = "https://opencode.ai/install"
 OPENCODE_RELEASES_URL = "https://github.com/anomalyco/opencode/releases/latest/download"
 
+# opencode.ai sits behind Cloudflare and 403s urllib's default
+# ``Python-urllib/3.x`` User-Agent from datacenter IPs; send a browser-like
+# one for both the installer script fetch and the Windows release download.
+_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; music-copyright-checker/0.2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"}
+
 
 def install_dir() -> Path:
     """Return the directory the official installer writes to."""
@@ -109,7 +114,7 @@ def _install_with_official_script(version: Optional[str] = None) -> str:
     ``--no-modify-path`` keeps it from editing shell rc files; callers that
     need opencode on PATH still get ``~/.opencode/bin`` from ``resolve_``.
     """
-    script = urllib.request.urlopen(OPENCODE_INSTALL_URL, timeout=60).read()
+    script = urllib.request.urlopen(urllib.request.Request(OPENCODE_INSTALL_URL, headers=_HTTP_HEADERS), timeout=60).read()
     process = subprocess.Popen(
         ["bash", "-s", "--", "--no-modify-path"] + ([ "--version", version] if version else []),
         stdin=subprocess.PIPE,
@@ -147,7 +152,9 @@ def _install_on_windows(version: Optional[str] = None) -> str:
     with tempfile.TemporaryDirectory(prefix="opencode-download-") as tmp:
         archive = Path(tmp) / _windows_asset()
         print(f"Downloading {url}", file=sys.stderr)
-        urllib.request.urlretrieve(url, archive)
+        with urllib.request.urlopen(urllib.request.Request(url, headers=_HTTP_HEADERS), timeout=120) as response:
+            with open(archive, "wb") as out:
+                shutil.copyfileobj(response, out)
         with zipfile.ZipFile(archive) as zf:
             member = next(
                 (name for name in zf.namelist() if Path(name).name in {"opencode", "opencode.exe"}),
