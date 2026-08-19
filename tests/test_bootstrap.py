@@ -9,7 +9,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from music_copyright_checker.bootstrap import _binary_name, ensure_opencode, install_dir, resolve_opencode
+from music_copyright_checker.bootstrap import (
+    _binary_name,
+    ensure_opencode,
+    ensure_ssl_certs,
+    install_dir,
+    resolve_opencode,
+)
 from music_copyright_checker.errors import OpenCodeNotInstalledError
 
 
@@ -69,6 +75,42 @@ class TestResolveOpencode(unittest.TestCase):
             self.assertEqual(_binary_name("opencode.exe"), "opencode.exe")
         with patch.object(sys, "platform", "linux"):
             self.assertEqual(_binary_name("opencode"), "opencode")
+
+
+class TestEnsureSslCerts(unittest.TestCase):
+    def test_sets_ssl_cert_file_from_certifi(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cacert = Path(tmp) / "cacert.pem"
+            cacert.write_text("dummy CA bundle\n")
+            with patch.dict(os.environ, clear=True):
+                with patch("certifi.where", return_value=str(cacert)):
+                    ensure_ssl_certs()
+                self.assertEqual(os.environ.get("SSL_CERT_FILE"), str(cacert))
+
+    def test_respects_existing_ssl_cert_file(self):
+        with patch.dict(os.environ, {"SSL_CERT_FILE": "/custom/certs.pem"}, clear=True):
+            with patch("certifi.where", side_effect=AssertionError("should not be called")):
+                ensure_ssl_certs()
+            self.assertEqual(os.environ.get("SSL_CERT_FILE"), "/custom/certs.pem")
+
+    def test_respects_existing_ssl_cert_dir(self):
+        with patch.dict(os.environ, {"SSL_CERT_DIR": "/custom/certs"}, clear=True):
+            with patch("certifi.where", side_effect=AssertionError("should not be called")):
+                ensure_ssl_certs()
+        self.assertNotIn("SSL_CERT_FILE", os.environ)
+
+    def test_skips_when_certifi_unavailable(self):
+        real_import = __import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "certifi":
+                raise ImportError("no certifi")
+            return real_import(name, *args, **kwargs)
+
+        with patch.dict(os.environ, clear=True):
+            with patch("builtins.__import__", side_effect=fake_import):
+                ensure_ssl_certs()
+        self.assertNotIn("SSL_CERT_FILE", os.environ)
 
 
 if __name__ == "__main__":

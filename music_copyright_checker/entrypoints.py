@@ -19,6 +19,8 @@ import os
 import sys
 from typing import Optional
 
+from music_copyright_checker.bootstrap import ensure_ssl_certs
+
 try:
     from music_copyright_checker import cli, server  # frozen script (top-level)
 except ImportError:
@@ -32,6 +34,7 @@ def _invoked_as_server() -> bool:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    ensure_ssl_certs()
     args = list(sys.argv[1:] if argv is None else argv)
     if _invoked_as_server() or (args and args[0] == "server"):
         if args and args[0] == "server":

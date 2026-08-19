@@ -39,6 +39,20 @@ def main() -> int:
         print(f"CLI --help failed:\n{help_result.stdout}\n{help_result.stderr}", file=sys.stderr)
         return 1
 
+    print("== HTTPS reachability (CA bundle sanity) ==")
+    try:
+        with urllib.request.urlopen("https://opencode.ai", timeout=20) as response:
+            if response.status != 200:
+                raise RuntimeError(f"unexpected status {response.status}")
+    except Exception as exc:
+        print(
+            f"HTTPS check failed: {exc}\n"
+            "The frozen binary cannot verify TLS certificates (frozen macOS "
+            "Python has no default CA store unless SSL_CERT_FILE is provided).",
+            file=sys.stderr,
+        )
+        return 1
+
     print("== local server (no jobs) ==")
     port = free_port()
     server = subprocess.Popen(

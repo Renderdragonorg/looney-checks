@@ -39,6 +39,32 @@ def install_dir() -> Path:
     return Path.home() / ".opencode" / "bin"
 
 
+def ensure_ssl_certs() -> None:
+    """Make sure Python can verify HTTPS certificates when running frozen.
+
+    python.org Python builds on macOS do not read the system keychain: the
+    bundled OpenSSL looks for its CA store in a path inside the framework
+    that only exists when python.org is actually installed. Inside a
+    PyInstaller one-file binary that path is gone, so every HTTPS call fails
+    with ``CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate``
+    unless the trust store is provided explicitly.
+
+    certifi is bundled with the binary, so expose its CA bundle through the
+    ``SSL_CERT_FILE`` environment variable, which the stdlib ``ssl`` module,
+    urllib3 and requests all honor when creating default verification
+    contexts.
+    """
+    if os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return
+    try:
+        import certifi
+    except ImportError:
+        return
+    cafile = certifi.where()
+    if os.path.isfile(cafile):
+        os.environ["SSL_CERT_FILE"] = cafile
+
+
 def _binary_name(binary: str) -> str:
     if sys.platform == "win32" and not Path(binary).suffix:
         return binary + ".exe"
