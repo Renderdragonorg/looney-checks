@@ -11,7 +11,10 @@ name: build-binaries
 #   blacksmith-4vcpu-ubuntu-2404      -> ubuntu-24.04
 #   blacksmith-4vcpu-ubuntu-2404-arm  -> ubuntu-24.04-arm
 #   blacksmith-4vcpu-windows-2025     -> windows-2025
-#   blacksmith-6vcpu-macos-latest     -> macos-14 (or macos-15)
+#   blacksmith-6vcpu-macos-latest     -> macos-26 (ARM64)
+# macOS Intel is not offered on Blacksmith (Apple Silicon only), so the
+# macos-x86_64 build always runs on a GitHub-hosted Intel runner
+# (macos-26-intel).
 
 on:
   workflow_dispatch:
@@ -51,6 +54,10 @@ jobs:
             ext: ".exe"
           - target: macos-aarch64
             runs-on: blacksmith-6vcpu-macos-latest
+            artifact: music-copyright-checker
+            ext: ""
+          - target: macos-x86_64
+            runs-on: macos-26-intel
             artifact: music-copyright-checker
             ext: ""
 

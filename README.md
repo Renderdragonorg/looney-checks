@@ -55,6 +55,7 @@ no Python, no `pip`, no build step:
 | --- | --- |
 | Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64` |
 | Linux arm64 | `music-copyright-checker-<version>-linux-aarch64` |
+| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64` |
 | macOS (Apple Silicon) | `music-copyright-checker-<version>-macos-aarch64` |
 | Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.exe` |
 

@@ -20,6 +20,7 @@ Binaries are published as GitHub Release assets. One file per platform:
 | --- | --- |
 | Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64` |
 | Linux arm64 (aarch64) | `music-copyright-checker-<version>-linux-aarch64` |
+| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64` |
 | macOS (Apple Silicon / M-series) | `music-copyright-checker-<version>-macos-aarch64` |
 | Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.exe` |
 
@@ -33,9 +34,9 @@ sha256sum -c SHA256SUMS --ignore-missing
 Get-FileHash music-copyright-checker-*-windows-x86_64.exe -Algorithm SHA256
 ```
 
-> macOS arm64 is built on Apple Silicon; macOS Intel (x64) and Windows arm64
-> are not shipped. On an Intel Mac, run the arm64 build under Rosetta or use
-> the Python package instead.
+> macOS arm64 is built on Apple Silicon (Blacksmith), and macOS x86_64 on a
+> GitHub-hosted Intel runner; Windows arm64 is not shipped. All binaries run
+> natively on their target — no Rosetta or emulation required.
 
 The binary is the same program whether you use it as a CLI or as a server.
 It dispatches on the command:
@@ -331,11 +332,12 @@ CLI, boots the server, and asserts the `/jobs` endpoints are absent.
 `.github/workflows/build-binaries.yml` builds on push to `main`/`master`,
 on `workflow_dispatch`, and on `v*` tags:
 
-1. **Matrix build** on Blacksmith runners (see note below):
+1. **Matrix build**:
    - `linux-x86_64` → `blacksmith-4vcpu-ubuntu-2404`
    - `linux-aarch64` → `blacksmith-4vcpu-ubuntu-2404-arm`
    - `windows-x86_64` → `blacksmith-4vcpu-windows-2025`
-   - `macos-aarch64` → `blacksmith-6vcpu-macos-latest`
+   - `macos-aarch64` → `blacksmith-6vcpu-macos-latest` (Apple Silicon)
+   - `macos-x86_64` → `macos-26-intel` (GitHub-hosted; Blacksmith has no Intel macOS)
 2. Each job installs the project, runs the full test suite, builds with
    PyInstaller, and smoke-tests the artifact.
 3. Artifacts are uploaded to the workflow run.
@@ -349,8 +351,9 @@ The version in the asset names comes from `pyproject.toml`, so tagging
 > **Blacksmith note.** Blacksmith runners are available to GitHub
 > *organization* repositories with the Blacksmith app installed. On a
 > personal repository, swap each `blacksmith-*` label for its GitHub-hosted
-> equivalent — `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-2025`,
-> `macos-14` — to run the same build for free.
+> equivalent — `ubuntu-24.04`, `ubuntu-24.04-arm`, `windows-2025`, `macos-26`
+> — to run the same build for free. macOS Intel has no Blacksmith image, so
+> that job uses the GitHub-hosted `macos-26-intel` runner regardless.
 
 ---
 
