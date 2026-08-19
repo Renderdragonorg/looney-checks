@@ -61,13 +61,14 @@ class TestResolveOpencode(unittest.TestCase):
 
     def test_install_dir_is_home_opencode_bin(self):
         with patch("music_copyright_checker.bootstrap.Path.home", return_value=Path("/home/tester")):
-            self.assertEqual(str(install_dir()), "/home/tester/.opencode/bin")
+            self.assertEqual(install_dir(), Path("/home/tester") / ".opencode" / "bin")
 
     def test_binary_name_appends_exe_on_windows(self):
         with patch.object(sys, "platform", "win32"):
             self.assertEqual(_binary_name("opencode"), "opencode.exe")
             self.assertEqual(_binary_name("opencode.exe"), "opencode.exe")
-        self.assertEqual(_binary_name("opencode"), "opencode")
+        with patch.object(sys, "platform", "linux"):
+            self.assertEqual(_binary_name("opencode"), "opencode")
 
 
 if __name__ == "__main__":

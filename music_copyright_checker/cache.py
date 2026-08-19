@@ -9,6 +9,7 @@ import re
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -52,7 +53,7 @@ class CacheStore:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=NORMAL")
             connection.execute("PRAGMA busy_timeout=30000")
@@ -74,7 +75,7 @@ class CacheStore:
     def get(self, cache_key: str) -> Optional[CacheRecord]:
         now = time.time()
         with self._write_lock:
-            with self._connect() as connection:
+            with closing(self._connect()) as connection, connection:
                 row = connection.execute(
                     "SELECT value_json, created_at, expires_at "
                     "FROM cache_entries WHERE cache_key = ?",
@@ -107,7 +108,7 @@ class CacheStore:
         expires_at = now + max(0.0, ttl_seconds)
         encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         with self._write_lock:
-            with self._connect() as connection:
+            with closing(self._connect()) as connection, connection:
                 connection.execute(
                     """
                     INSERT INTO cache_entries(cache_key, value_json, created_at, expires_at)
@@ -125,7 +126,7 @@ class CacheStore:
 
     def clear(self) -> None:
         with self._write_lock:
-            with self._connect() as connection:
+            with closing(self._connect()) as connection, connection:
                 connection.execute("DELETE FROM cache_entries")
 
 
