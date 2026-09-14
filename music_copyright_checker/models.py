@@ -66,6 +66,19 @@ class TrackMetadata:
     explicit: Optional[bool] = None
     spotify_id: Optional[str] = None
     spotify_url: Optional[str] = None
+    # YouTube Data API v3 fields (populated when the source is a YouTube video).
+    youtube_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    channel: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_url: Optional[str] = None
+    description: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    category: Optional[str] = None
+    licensed_content: Optional[bool] = None
+    published_at: Optional[str] = None
+    view_count: Optional[int] = None
+    thumbnail_url: Optional[str] = None
     external_ids: Dict[str, str] = field(default_factory=dict)
     raw: Optional[Dict[str, Any]] = None  # optional source payload for debugging / re-parsing
 
@@ -98,7 +111,7 @@ class FileMetadata:
 class LookupRequest:
     """The full, normalized payload that gets serialized and handed to the AI."""
 
-    source: str  # "spotify" | "file"
+    source: str  # "spotify" | "youtube" | "file"
     input_ref: str  # the original URL/URI or file path
     track: TrackMetadata
     credits: TrackCredits
@@ -209,6 +222,18 @@ def track_metadata_from_dict(data: Dict[str, Any]) -> TrackMetadata:
         explicit=data.get("explicit"),
         spotify_id=data.get("spotify_id"),
         spotify_url=data.get("spotify_url"),
+        youtube_id=data.get("youtube_id"),
+        youtube_url=data.get("youtube_url"),
+        channel=data.get("channel"),
+        channel_id=data.get("channel_id"),
+        channel_url=data.get("channel_url"),
+        description=data.get("description"),
+        tags=list(data.get("tags") or []),
+        category=data.get("category"),
+        licensed_content=data.get("licensed_content"),
+        published_at=data.get("published_at"),
+        view_count=data.get("view_count"),
+        thumbnail_url=data.get("thumbnail_url"),
         external_ids=dict(data.get("external_ids") or {}),
         raw=None,
     )

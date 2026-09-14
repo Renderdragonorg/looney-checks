@@ -27,6 +27,12 @@ class _FakePipeline:
             progress("researching", "Fake research complete.")
         return _FakeResult()
 
+    def check_youtube_url(self, value, *, progress=None):
+        self.last_value = value
+        if progress:
+            progress("researching", "Fake research complete.")
+        return _FakeResult()
+
     def check_file(self, value, *, progress=None, fallback_title=None):
         self.last_value = value
         self.fallback_title = fallback_title
@@ -74,6 +80,7 @@ class TestServerWithJobs(TestServer):
         self.assertIn("social_media_verdict", check["response"]["research"]["usage_assessment"])
         self.assertEqual(payload["implementation_steps"][0]["title"], "Install")
         self.assertIn("client_file_upload", payload["request_modes"])
+        self.assertIn("youtube_json", payload["request_modes"])
         self.assertIn("research.sources", payload["response_fields"])
 
     def test_docs_with_jobs_describes_job_endpoints(self):
@@ -94,6 +101,18 @@ class TestServerWithJobs(TestServer):
             payload = json.load(response)
         self.assertEqual(payload["research"]["status"], "complete")
         self.assertEqual(self.pipeline.last_value, "spotify:track:abc")
+
+    def test_check_routes_youtube_request(self):
+        request = Request(
+            f"{self.base_url}/check",
+            data=json.dumps({"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["research"]["status"], "complete")
+        self.assertEqual(self.pipeline.last_value, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
     def test_check_routes_multipart_file_and_cleans_up(self):
         boundary = "----music-checker-test"

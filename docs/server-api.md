@@ -53,18 +53,19 @@ The server requires:
 
 - Python 3.9 or newer
 - the dependencies from `pyproject.toml`
-- the `opencode` executable on `PATH`
-- an authenticated OpenCode provider
+- an `OPENROUTER_API_KEY` for the default backend
 
-Check the model and authentication before starting:
+Check the key before starting:
 
 ```bash
-opencode auth list
-opencode models
+export OPENROUTER_API_KEY=sk-or-...
 ```
 
-The default model is `opencode/big-pickle`. The server can receive a different
-model with `--model`, but the structured response contract remains the same.
+The default backend is OpenRouter with the free model router (`openrouter/free`).
+The server accepts a different backend with `--ai-backend opencode` (which needs
+the `opencode` executable and an authenticated OpenCode provider) and a
+different model with `--model`, but the structured response contract remains the
+same.
 
 ## 2. Start the Server
 
@@ -74,8 +75,9 @@ For local development:
 uv run music-copyright-checker-server \
   --host 127.0.0.1 \
   --port 8080 \
-  --model opencode/big-pickle \
-  --timeout 900
+  --ai-backend openrouter \
+  --model openrouter/free \
+  --timeout 300
 ```
 
 For a server reachable from another machine on the LAN:
@@ -84,8 +86,9 @@ For a server reachable from another machine on the LAN:
 uv run music-copyright-checker-server \
   --host 0.0.0.0 \
   --port 8090 \
-  --model opencode/big-pickle \
-  --timeout 900
+  --ai-backend openrouter \
+  --model openrouter/free \
+  --timeout 300
 ```
 
 The AI request is synchronous. Keep the client request timeout longer than the
@@ -130,7 +133,7 @@ The included service uses:
 - `Restart=always` to recover from process failures
 - `RestartSec=10` to avoid a tight restart loop
 - `WorkingDirectory=%h/music_copyright_checker`
-- `opencode/big-pickle`
+- `openrouter/free` (OpenRouter backend; key from `~/.config/music-copyright-checker.env`)
 - port `8090`
 
 For the service to start after reboot without an interactive login, user
@@ -157,7 +160,7 @@ Example response:
 {
   "status": "ok",
   "service": "music-copyright-checker",
-  "ai_model": "opencode/big-pickle"
+  "ai_model": "openrouter/free"
 }
 ```
 
@@ -183,6 +186,23 @@ curl -X POST http://127.0.0.1:8090/check \
 ```
 
 The value can also be a `spotify:track:...` URI or a bare Spotify track ID.
+
+Send exactly one `youtube_url` field (a watch/youtu.be/shorts/embed URL, a bare
+11-character video id, or a free-text search query) to use the YouTube Data API
+v3 source instead. `YOUTUBE_API_KEY` must be set (the package ships a default
+that can be overridden):
+
+```bash
+curl -X POST http://127.0.0.1:8090/check \
+  -H 'Content-Type: application/json' \
+  -d '{"youtube_url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' \
+  > youtube-result.json
+```
+
+The YouTube source normalizes title, channel/uploader, description, tags,
+category, duration, `licensedContent`, and view counts, then hands the same
+normalized request to the AI researcher. The response shape is identical to the
+Spotify path, with `request.source` set to `youtube`.
 
 ## 6. Send a Server-Local File
 

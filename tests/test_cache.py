@@ -61,7 +61,7 @@ def _pipeline(cache: CacheStore, spotify: _FakeSpotify, ai: _FakeAI) -> Pipeline
     pipeline._spotify = spotify
     pipeline._file = None
     pipeline._run_ai_research = True
-    pipeline._opencode_model = "test-model"
+    pipeline._ai_model = "test-model"
     pipeline._metadata_ttl_seconds = 3600
     pipeline._file_metadata_ttl_seconds = 3600
     pipeline._research_ttl_seconds = 3600

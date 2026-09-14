@@ -47,7 +47,7 @@ RESULT_SCHEMA_HINT = """{
 }"""
 
 # Bump this whenever the research instructions or output policy changes.
-RESEARCH_PROMPT_VERSION = "1"
+RESEARCH_PROMPT_VERSION = "2"
 
 
 def build_research_prompt(request_payload: Dict[str, Any]) -> str:
@@ -60,6 +60,13 @@ your reasoning, or produce markdown.
 
 Research task:
 1. Identify the track from the supplied metadata.
+   If the source is a YouTube video, the title and channel/uploader are noisy:
+   strip marketing/format text such as "(Official Music Video)", "(Lyrics)",
+   "[HD]", remaster/live/cover markers, and extract the underlying song title
+   and artists. Corroborate them with the channel, description, tags, duration,
+   or authoritative sources before identifying the track. Treat the channel as
+   the uploader, which may be a label or a "- Topic" auto-generated channel
+   rather than the performing artist.
    If the source is a local file and the title is derived from its filename,
    use that filename title as a search hint. It is not verified metadata: corroborate
    it with artist, album, ISRC, duration, or authoritative sources before identifying the track.

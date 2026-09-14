@@ -173,6 +173,8 @@ def research_identity(request: LookupRequest, *, fallback: Optional[str] = None)
         return f"isrc:{_normalized(track.isrc)}"
     if track.spotify_id:
         return f"spotify:{_normalized(track.spotify_id)}"
+    if track.youtube_id:
+        return f"youtube:{_normalized(track.youtube_id)}"
     if fallback:
         return fallback
     payload = {

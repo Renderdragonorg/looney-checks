@@ -30,21 +30,23 @@ Audio file ───┘
    `TrackMetadata` / `TrackCredits` shape (see `models.py`), so the AI step
    doesn't need to know where the data came from.
 
-3. **AI research** — `ai_researcher.py` builds a prompt (`prompts.py`) that
-   hands the AI the normalized JSON and asks it to search multiple sources
-   (MusicBrainz, ASCAP/BMI/PRS, label/publisher sites, Discogs, ...) for the
-   real rights holder and how to license the track, then reply with strict
-   JSON. It runs that prompt through
-   [`opencode-harness`](docs/opencode-harness/) (bundled reference docs
-   included), which drives the `opencode` CLI/agent — the actual thing doing
-   the web searching/browsing, tool use, etc. The response is parsed back
-   into a `ResearchResult`.
+3. **AI research** — `prompts.py` builds a prompt that hands the AI the
+   normalized JSON and asks it to search multiple sources (MusicBrainz,
+   ASCAP/BMI/PRS, label/publisher sites, Discogs, ...) for the real rights
+   holder and how to license the track, then reply with strict JSON. By default
+   this runs through `openrouter_researcher.py`, which calls the OpenRouter REST
+   API (`openrouter_client.py`) with the free model router (`openrouter/free`)
+   and OpenRouter's server-side `openrouter:web_search` tool for live research —
+   no local agent/browser process. Set `OPENROUTER_API_KEY` to enable it.
+   `ai_backend="opencode"` still drives the bundled
+   [`opencode-harness`](docs/opencode-harness/) CLI agent as an alternative.
+   The response is parsed back into a `ResearchResult`.
 
 4. **Result** — `pipeline.py`'s `Pipeline.check_spotify_url()` /
-   `.check_file()` return a `CopyrightCheckResult` with `.to_dict()` giving
-   you the full JSON: original request, normalized metadata/credits, and the
-   AI's research findings (matches, confidence, licensing contacts,
-   warnings).
+   `.check_youtube_url()` / `.check_file()` return a `CopyrightCheckResult`
+   with `.to_dict()` giving you the full JSON: original request, normalized
+   metadata/credits, and the AI's research findings (matches, confidence,
+   licensing contacts, warnings).
 
 ## Download a prebuilt binary
 
@@ -64,24 +66,23 @@ One binary serves both the CLI and the local JSON server:
 ```bash
 # CLI
 ./music-copyright-checker --spotify-url https://open.spotify.com/track/xxxx --pretty
+./music-copyright-checker --youtube-url https://www.youtube.com/watch?v=xxxxxxxxxxx --pretty
 ./music-copyright-checker --file ./song.mp3 --pretty
 
 # Local JSON server for integrating into other apps (no /jobs endpoint)
 ./music-copyright-checker server --host 127.0.0.1 --port 8080
 ```
 
-On first run the binary downloads its only runtime dependency — the `opencode`
-CLI — using the official installer (`curl -fsSL https://opencode.ai/install |
-bash`; a direct release download on Windows) into `~/.opencode/bin`, then
-reuses any existing install from then on. Pass `--no-auto-install` (or point
-`--opencode-binary` at your own copy) to disable that. You still need an
-authenticated OpenCode provider, e.g. `opencode auth login` / OpenCode Zen.
+The default AI backend is the OpenRouter REST API, so the only thing you need
+is an OpenRouter key: export `OPENROUTER_API_KEY` (or pass `--ai-backend
+opencode` to use the `opencode` CLI agent instead, which on first run is
+downloaded via the official installer into `~/.opencode/bin`).
 
 Checksums are published next to the binaries in the release (`SHA256SUMS`).
 
-For everything else — first-run opencode install, the full flag reference,
-embedding the local JSON server into another app, building from source, and
-the CI/release pipeline — see [the binaries user guide](docs/binaries.md).
+For everything else — backend/model flags, the full flag reference, embedding
+the local JSON server into another app, building from source, and the
+CI/release pipeline — see [the binaries user guide](docs/binaries.md).
 
 ## Install
 
@@ -89,10 +90,11 @@ the CI/release pipeline — see [the binaries user guide](docs/binaries.md).
 pip install -e .     # or: uv pip install -e .
 ```
 
-`opencode_harness` is vendored in this repo (see the package layout below), so
-a plain `pip install -e .` picks it up — no separate step. You do still need
-the `opencode` CLI binary on `PATH` (checked at `AIResearcher` construction),
-or point at a running `opencode serve` with `--opencode-server`.
+The default AI backend calls OpenRouter directly and needs `OPENROUTER_API_KEY`.
+The `opencode_harness` package is vendored for the optional
+`--ai-backend opencode` path; using it requires the `opencode` CLI binary on
+`PATH` (checked at `AIResearcher` construction), or a running `opencode serve`
+via `--opencode-server`.
 
 ## Caching
 
@@ -101,9 +103,11 @@ structured AI research result in SQLite. The default cache is
 `~/.cache/music-copyright-checker/cache.sqlite3`; configure another location with
 `MUSIC_CHECKER_CACHE_PATH`, `--cache-path`, or disable it with `--no-cache`.
 
-Spotify URLs are keyed by their canonical track ID. Audio files are identified
-by a streaming SHA-256 hash, so temporary upload paths and renamed files do not
-cause repeated AI research. Audio bytes are never stored in the cache.
+Spotify URLs are keyed by their canonical track ID and YouTube videos by their
+11-character video ID (free-text YouTube queries cache their resolved video ID
+too). Audio files are identified by a streaming SHA-256 hash, so temporary
+upload paths and renamed files do not cause repeated AI research. Audio bytes
+are never stored in the cache.
 
 Cached research is versioned by the prompt and model, expires after seven days
 by default, and reports `ai_meta.cache_hit`, `ai_meta.cache_age_seconds`, and
@@ -117,10 +121,15 @@ legally current.
 ```python
 from music_copyright_checker import Pipeline
 
-pipeline = Pipeline()  # defaults to opencode/big-pickle
+pipeline = Pipeline()  # OpenRouter backend, model openrouter/free (needs OPENROUTER_API_KEY)
 
 result = pipeline.check_spotify_url("https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6")
 print(result.to_dict())
+
+# YouTube Data API v3: paste a URL, a bare 11-char video id, or a search query.
+# Set YOUTUBE_API_KEY (e.g. in your .env); required for the YouTube source.
+result_yt = pipeline.check_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+print(result_yt.to_dict())
 
 result2 = pipeline.check_file("/path/to/song.mp3")
 print(result2.to_dict())
@@ -130,9 +139,11 @@ Or from the command line:
 
 ```bash
 python -m music_copyright_checker.cli --spotify-url https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6 --pretty
+python -m music_copyright_checker.cli --youtube-url https://www.youtube.com/watch?v=dQw4w9WgXcQ --pretty
+python -m music_copyright_checker.cli --youtube-url "Rick Astley - Never Gonna Give You Up" --pretty
 python -m music_copyright_checker.cli --file ./song.mp3 --pretty
 python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --no-ai   # skip AI, just inspect normalized metadata
-python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model opencode/big-pickle --pretty
+python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model openrouter/free --pretty
 ```
 
 ## JSON server
@@ -286,10 +297,13 @@ music_copyright_checker/
 ├── models.py           # dataclasses: TrackMetadata, TrackCredits, LookupRequest,
 │                        #              LicenseMatch, ResearchResult, CopyrightCheckResult
 ├── spotify_source.py    # Spotify URL/URI parsing + SpotAPI lookup + normalization
+├── youtube_source.py    # YouTube Data API v3 video lookup + search + normalization
 ├── file_source.py       # local audio file tag extraction (mutagen)
 ├── prompts.py            # the licensing-research prompt template
-├── ai_researcher.py      # opencode-harness integration + response parsing
-├── pipeline.py            # Pipeline: wires sources + AI step together
+├── openrouter_client.py  # direct OpenRouter REST client (free router + web_search tool)
+├── openrouter_researcher.py  # OpenRouter backend (prompt -> research + parsing)
+├── ai_researcher.py      # optional opencode-harness backend + response parsing
+├── pipeline.py            # Pipeline: wires sources + AI backend together
 ├── bootstrap.py           # downloads/installs the opencode CLI when missing
 ├── cli.py                  # thin CLI wrapper, no UI
 ├── server.py               # JSON HTTP API around Pipeline (/jobs opt-in with --jobs)

@@ -22,6 +22,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .ai_researcher import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
 from .errors import MusicCheckerError
+from .openrouter_client import DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT
 from .pipeline import Pipeline
 
 MAX_JSON_BODY_BYTES = 1_000_000
@@ -223,6 +224,8 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
             "request": {
                 "one_of": [
                     {"spotify_url": "https://open.spotify.com/track/..."},
+                    {"youtube_url": "https://www.youtube.com/watch?v=..."},
+                    {"youtube_url": "Artist - Song name (free-text search query)"},
                     {"file": "/absolute/path/to/song.mp3"},
                     {"file_url": "https://cdn.example.com/song.mp3"},
                     {"multipart_file": "file=@song.mp3"},
@@ -252,7 +255,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
             },
             "errors": {
                 "400": "Invalid JSON/multipart data or both/neither source fields supplied.",
-                "422": "The pipeline could not process the supplied source.",
+                "422": "The pipeline could not process the supplied source (invalid URL, YouTube API error, ...).",
                 "500": "Unexpected server error.",
             },
         },
@@ -281,6 +284,8 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
         ]
     examples = {
         "curl": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"spotify_url\":\"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT\"}'",
+        "curl_youtube": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"}'",
+        "curl_youtube_search": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"Rick Astley - Never Gonna Give You Up\"}'",
         "curl_upload": "curl -X POST http://127.0.0.1:8080/check -F 'file=@/path/to/song.mp3'",
         "javascript": "fetch('http://127.0.0.1:8080/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({spotify_url: url})}).then(r => r.json())",
     }
@@ -288,12 +293,12 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
         {
             "step": 1,
             "title": "Install",
-            "commands": ["uv sync --extra dev", "opencode auth list", "opencode models"],
+            "commands": ["uv sync --extra dev", "export OPENROUTER_API_KEY=sk-or-..."],
         },
         {
             "step": 2,
             "title": "Start",
-            "command": "uv run music-copyright-checker-server --host 127.0.0.1 --port 8080 --model opencode/big-pickle --timeout 900",
+            "command": "uv run music-copyright-checker-server --host 127.0.0.1 --port 8080 --ai-backend openrouter --model openrouter/free --timeout 300",
         },
         {
             "step": 3,
@@ -338,6 +343,11 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                 "content_type": "application/json",
                 "body": {"spotify_url": "https://open.spotify.com/track/..."},
             },
+            "youtube_json": {
+                "content_type": "application/json",
+                "body": {"youtube_url": "https://www.youtube.com/watch?v=..."},
+                "note": "Accepts a watch/youtu.be/shorts/embed URL, a bare 11-character video id, or a free-text search query resolved via the YouTube Data API v3 (requires YOUTUBE_API_KEY).",
+            },
             "server_file_json": {
                 "content_type": "application/json",
                 "body": {"file": "/absolute/path/on/server/song.mp3"},
@@ -380,6 +390,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
         "caching": {
             "default": "SQLite at ~/.cache/music-copyright-checker/cache.sqlite3",
             "spotify_metadata_ttl_hours": 12,
+            "youtube_metadata_ttl_hours": 12,
             "file_metadata_ttl_days": 30,
             "research_ttl_days": 7,
             "refresh": "Set refresh=true in a JSON request to bypass cached metadata and research.",
@@ -395,7 +406,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
             "Bind to 127.0.0.1 for local-only clients.",
             "Protect the port with a firewall or authenticated reverse proxy when binding to 0.0.0.0.",
             "Server-local file paths are read with the service account's permissions.",
-            "Keep OpenCode provider credentials on the server, never in browser requests.",
+            "Keep OPENROUTER_API_KEY / OpenCode provider credentials on the server, never in browser requests.",
         ],
     }
 
@@ -559,14 +570,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                     return
 
                 spotify_url = payload.get("spotify_url")
+                youtube_url = payload.get("youtube_url")
                 file_path = payload.get("file")
                 file_url = payload.get("file_url")
                 refresh = payload.get("refresh", False)
-                values = (spotify_url, file_path, file_url)
+                values = (spotify_url, youtube_url, file_path, file_url)
                 if sum(bool(value) for value in values) != 1 or not all(
                     value is None or isinstance(value, str) for value in values
                 ):
-                    self._send_json(400, {"error": "Provide exactly one string: 'spotify_url', 'file', or 'file_url'."})
+                    self._send_json(400, {"error": "Provide exactly one string: 'spotify_url', 'youtube_url', 'file', or 'file_url'."})
                     return
                 if not isinstance(refresh, bool):
                     self._send_json(400, {"error": "'refresh' must be a boolean when provided."})
@@ -579,6 +591,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                     else:
                         work = lambda progress: self.server.pipeline.check_spotify_url(
                             spotify_url, progress=progress
+                        ).to_dict()
+                elif youtube_url:
+                    if refresh:
+                        work = lambda progress: self.server.pipeline.check_youtube_url(
+                            youtube_url, progress=progress, refresh=True
+                        ).to_dict()
+                    else:
+                        work = lambda progress: self.server.pipeline.check_youtube_url(
+                            youtube_url, progress=progress
                         ).to_dict()
                 elif file_path:
                     if refresh:
@@ -680,7 +701,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Music copyright checker JSON API server")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080).")
-    parser.add_argument("--model", default=DEFAULT_OPENCODE_MODEL, help=f"opencode model (default: {DEFAULT_OPENCODE_MODEL}).")
+    parser.add_argument(
+        "--ai-backend",
+        choices=("openrouter", "opencode"),
+        default="openrouter",
+        help="AI backend: OpenRouter REST API (default) or the opencode CLI agent.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Model override for the selected backend. OpenRouter default: "
+            f"{DEFAULT_OPENROUTER_MODEL}; opencode default: {DEFAULT_OPENCODE_MODEL}."
+        ),
+    )
     parser.add_argument("--opencode-server", default=None, help="opencode serve base URL.")
     parser.add_argument("--opencode-binary", default="opencode", help="opencode executable name/path.")
     parser.add_argument(
@@ -694,23 +728,32 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Enable the async /jobs queue for proxy/Cloudflare deployments (off by default; local integrations only need /check).",
     )
-    parser.add_argument("--timeout", type=float, default=DEFAULT_OPENCODE_TIMEOUT, help="AI research timeout in seconds.")
+    parser.add_argument("--timeout", type=float, default=None, help="AI research timeout in seconds (default: 300 OpenRouter / 900 opencode).")
     parser.add_argument("--no-ai", action="store_true", help="Disable AI for metadata-only API testing.")
     parser.add_argument("--cache-path", default=None, help="SQLite cache path (default: ~/.cache/music-copyright-checker/cache.sqlite3).")
     parser.add_argument("--no-cache", action="store_true", help="Disable metadata and research caching.")
     args = parser.parse_args(argv)
 
+    timeout = args.timeout
+    if timeout is None:
+        timeout = DEFAULT_OPENROUTER_TIMEOUT if args.ai_backend == "openrouter" else DEFAULT_OPENCODE_TIMEOUT
+    effective_model = args.model or (
+        DEFAULT_OPENROUTER_MODEL if args.ai_backend == "openrouter" else DEFAULT_OPENCODE_MODEL
+    )
+
     pipeline = Pipeline(
+        ai_backend=args.ai_backend,
+        ai_model=args.model,
         opencode_server=args.opencode_server,
         opencode_binary=args.opencode_binary,
-        opencode_model=args.model,
-        opencode_timeout=args.timeout,
+        opencode_timeout=timeout,
+        openrouter_timeout=timeout,
         run_ai_research=not args.no_ai,
         cache_enabled=not args.no_cache,
         cache_path=args.cache_path,
         opencode_auto_install=args.auto_install,
     )
-    server = create_server(args.host, args.port, pipeline, model=None if args.no_ai else args.model, jobs_enabled=args.jobs)
+    server = create_server(args.host, args.port, pipeline, model=None if args.no_ai else effective_model, jobs_enabled=args.jobs)
     if args.jobs:
         print("Async /jobs endpoints enabled.", file=sys.stderr)
     print(f"music-copyright-checker server listening on http://{args.host}:{args.port}", file=sys.stderr)

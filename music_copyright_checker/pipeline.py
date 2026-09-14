@@ -8,10 +8,15 @@ Typical usage::
 
     from music_copyright_checker import Pipeline
 
-    pipeline = Pipeline(opencode_model="sonnet")
+    # Default backend is OpenRouter (needs OPENROUTER_API_KEY); pass
+    # ai_backend="opencode" to use the opencode CLI agent instead.
+    pipeline = Pipeline()
 
     result = pipeline.check_spotify_url("https://open.spotify.com/track/....")
     print(result.to_dict())
+
+    result_yt = pipeline.check_youtube_url("https://www.youtube.com/watch?v=...")
+    print(result_yt.to_dict())
 
     result2 = pipeline.check_file("/path/to/song.mp3")
     print(result2.to_dict())
@@ -20,9 +25,16 @@ Typical usage::
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Callable, Dict, Optional
 
 from .ai_researcher import AIResearcher, DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
+from .openrouter_client import (
+    DEFAULT_OPENROUTER_BASE_URL,
+    DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_OPENROUTER_TIMEOUT,
+)
+from .openrouter_researcher import OpenRouterResearcher
 from .cache import (
     DEFAULT_FILE_METADATA_TTL_SECONDS,
     DEFAULT_METADATA_TTL_SECONDS,
@@ -36,7 +48,7 @@ from .cache import (
     metadata_cache_key,
     research_cache_key,
 )
-from .errors import MusicCheckerError
+from .errors import InvalidYouTubeURLError, MusicCheckerError
 from .file_source import FileSource
 from .models import (
     Credit,
@@ -51,17 +63,33 @@ from .models import (
 )
 from .prompts import RESEARCH_PROMPT_VERSION
 from .spotify_source import SpotifySource, parse_track_id
+from .youtube_source import YouTubeSource, parse_video_id
+
+
+def _query_identity(query: str) -> str:
+    """Normalize a free-text search query for the query->video-id cache."""
+    return re.sub(r"\s+", " ", (query or "").strip().casefold())
 
 
 class Pipeline:
-    """Wires together the Spotify/file sources and the AI researcher."""
+    """Wires together the Spotify/YouTube/file sources and the AI researcher."""
 
     def __init__(
         self,
         *,
         # Spotify
         spotify_language: str = "en",
-        # AI / opencode-harness
+        # YouTube Data API v3
+        youtube_api_key: Optional[str] = None,
+        # AI backend selection
+        ai_backend: str = "openrouter",  # "openrouter" (default) | "opencode"
+        ai_model: Optional[str] = None,  # override the backend's default model
+        # AI / OpenRouter direct REST (default backend)
+        openrouter_api_key: Optional[str] = None,
+        openrouter_base_url: str = DEFAULT_OPENROUTER_BASE_URL,
+        openrouter_web_search: bool = True,
+        openrouter_timeout: float = DEFAULT_OPENROUTER_TIMEOUT,
+        # AI / opencode-harness (optional legacy backend)
         opencode_server: Optional[str] = None,
         opencode_binary: str = "opencode",
         opencode_model: Optional[str] = DEFAULT_OPENCODE_MODEL,
@@ -79,29 +107,45 @@ class Pipeline:
         research_ttl_seconds: float = DEFAULT_RESEARCH_TTL_SECONDS,
     ) -> None:
         self._spotify = SpotifySource(language=spotify_language)
+        self._youtube = YouTubeSource(api_key=youtube_api_key)
         self._file = FileSource()
         self._run_ai_research = run_ai_research
-        self._opencode_model = opencode_model
+        self._ai_backend = ai_backend
+        if ai_backend not in {"openrouter", "opencode"}:
+            raise ValueError("ai_backend must be 'openrouter' or 'opencode'.")
+        if ai_backend == "openrouter":
+            self._ai_model = ai_model or DEFAULT_OPENROUTER_MODEL
+        else:
+            self._ai_model = ai_model or opencode_model
         self._metadata_ttl_seconds = metadata_ttl_seconds
         self._file_metadata_ttl_seconds = file_metadata_ttl_seconds
         self._research_ttl_seconds = research_ttl_seconds
         self._cache = (cache_store or CacheStore(cache_path)) if cache_enabled else None
         self._in_flight = InFlight()
-        self._ai: Optional[AIResearcher] = None
+        self._ai: Optional[Any] = None
         if run_ai_research:
-            if opencode_auto_install and opencode_server is None:
-                from .bootstrap import ensure_opencode
+            if ai_backend == "openrouter":
+                self._ai = OpenRouterResearcher(
+                    api_key=openrouter_api_key,
+                    base_url=openrouter_base_url,
+                    model=self._ai_model,
+                    timeout=openrouter_timeout,
+                    web_search=openrouter_web_search,
+                )
+            else:
+                if opencode_auto_install and opencode_server is None:
+                    from .bootstrap import ensure_opencode
 
-                opencode_binary = ensure_opencode(opencode_binary, auto_install=True)
-            self._ai = AIResearcher(
-                server=opencode_server,
-                binary=opencode_binary,
-                model=opencode_model,
-                auto_approve=opencode_auto_approve,
-                timeout=opencode_timeout,
-                username=opencode_username,
-                password=opencode_password,
-            )
+                    opencode_binary = ensure_opencode(opencode_binary, auto_install=True)
+                self._ai = AIResearcher(
+                    server=opencode_server,
+                    binary=opencode_binary,
+                    model=self._ai_model,
+                    auto_approve=opencode_auto_approve,
+                    timeout=opencode_timeout,
+                    username=opencode_username,
+                    password=opencode_password,
+                )
 
     # -- public API ---------------------------------------------------
 
@@ -148,6 +192,71 @@ class Pipeline:
             refresh=refresh,
             metadata_cache_hit=metadata_cache_hit,
         )
+
+    def check_youtube_url(
+        self,
+        url_or_query: str,
+        *,
+        progress: Optional[Callable[[str, str], None]] = None,
+        refresh: bool = False,
+    ) -> CopyrightCheckResult:
+        """Look up a YouTube video (URL, id, or search query), then run AI licensing research.
+
+        Mirrors :meth:`check_spotify_url`: metadata/credits are cached by video
+        id, then the normalized request is handed to the AI researcher. A
+        free-text query is resolved through ``search.list`` first, and that
+        query -> video-id mapping is cached to conserve API quota.
+        """
+        if progress:
+            progress("identifying_track", "Resolving the YouTube video and fetching metadata.")
+        video_id = self._resolve_youtube_video_id(url_or_query, refresh=refresh)
+        metadata_cache_hit = False
+        track: TrackMetadata
+        credits_: TrackCredits
+        cache_key = metadata_cache_key("youtube", video_id)
+        cached = None if refresh or self._cache is None else self._cache.get(cache_key)
+        if cached is not None:
+            try:
+                track = track_metadata_from_dict(cached.value["track"])
+                credits_ = track_credits_from_dict(cached.value["credits"])
+                metadata_cache_hit = True
+            except (AttributeError, KeyError, TypeError, ValueError):
+                cached = None
+        if cached is None:
+            track, credits_ = self._youtube.fetch_video(video_id)
+            if self._cache is not None:
+                self._cache.set(
+                    cache_key,
+                    {"track": track.to_dict(), "credits": credits_.to_dict()},
+                    self._metadata_ttl_seconds,
+                )
+        request = LookupRequest(
+            source="youtube",
+            input_ref=url_or_query,
+            track=track,
+            credits=credits_,
+        )
+        return self._run(
+            request,
+            progress=progress,
+            refresh=refresh,
+            metadata_cache_hit=metadata_cache_hit,
+        )
+
+    def _resolve_youtube_video_id(self, url_or_query: str, *, refresh: bool = False) -> str:
+        try:
+            return parse_video_id(url_or_query)
+        except InvalidYouTubeURLError:
+            pass
+        query_key = metadata_cache_key("youtube-query", _query_identity(url_or_query))
+        if not refresh and self._cache is not None:
+            cached = self._cache.get(query_key)
+            if cached is not None and cached.value.get("video_id"):
+                return str(cached.value["video_id"])
+        video_id = self._youtube.search_video(url_or_query)
+        if self._cache is not None:
+            self._cache.set(query_key, {"video_id": video_id}, self._metadata_ttl_seconds)
+        return video_id
 
     def check_file(
         self,
@@ -248,7 +357,7 @@ class Pipeline:
 
         cache_key = research_cache_key(
             request,
-            model=self._opencode_model,
+            model=self._ai_model,
             prompt_version=RESEARCH_PROMPT_VERSION,
             fallback_identity=fallback_identity,
         )

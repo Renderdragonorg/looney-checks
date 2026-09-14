@@ -19,7 +19,7 @@ from .models import LicenseMatch, LookupRequest, ResearchResult, ResearchSource,
 from .prompts import build_research_prompt
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
-DEFAULT_OPENCODE_MODEL = "opencode/big-pickle"
+DEFAULT_OPENCODE_MODEL = "opencode-go/mimo-v2.5"
 DEFAULT_OPENCODE_TIMEOUT = 900.0
 
 

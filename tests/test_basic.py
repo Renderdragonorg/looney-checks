@@ -23,8 +23,8 @@ from music_copyright_checker.errors import InvalidSpotifyURLError, AIResponsePar
 
 
 class TestOpenCodeDefaults(unittest.TestCase):
-    def test_big_pickle_is_default_model(self):
-        self.assertEqual(DEFAULT_OPENCODE_MODEL, "opencode/big-pickle")
+    def test_opencode_backend_default_model(self):
+        self.assertEqual(DEFAULT_OPENCODE_MODEL, "opencode-go/mimo-v2.5")
 
     def test_research_timeout_allows_long_file_research(self):
         self.assertEqual(DEFAULT_OPENCODE_TIMEOUT, 900.0)

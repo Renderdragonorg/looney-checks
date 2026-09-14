@@ -6,11 +6,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/music_copyright_checker
-ExecStart=%h/.local/bin/uv run --offline music-copyright-checker-server --host 0.0.0.0 --port 8090 --model opencode/big-pickle --timeout 900
+ExecStart=%h/.local/bin/uv run --offline music-copyright-checker-server --host 0.0.0.0 --port 8090 --ai-backend openrouter --model openrouter/free --timeout 300
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
 Environment=MUSIC_CHECKER_CACHE_PATH=%h/.cache/music-copyright-checker/cache.sqlite3
+# Set OPENROUTER_API_KEY (used by the default OpenRouter backend):
+EnvironmentFile=-%h/.config/music-copyright-checker.env
 
 [Install]
 WantedBy=default.target

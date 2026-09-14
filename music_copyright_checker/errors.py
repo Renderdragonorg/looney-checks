@@ -15,12 +15,32 @@ class SpotifyLookupError(MusicCheckerError):
     """Raised when SpotAPI fails to return track data for a track id."""
 
 
+class InvalidYouTubeURLError(MusicCheckerError):
+    """Raised when a value could not be parsed as a YouTube video id/URL."""
+
+
+class YouTubeLookupError(MusicCheckerError):
+    """Raised when the YouTube Data API fails to return video data."""
+
+
+class YouTubeAPIError(YouTubeLookupError):
+    """Raised when the YouTube Data API returns an explicit error response."""
+
+
 class FileMetadataError(MusicCheckerError):
     """Raised when a local audio file's metadata cannot be read."""
 
 
 class AIResearchError(MusicCheckerError):
-    """Raised when the AI research step (opencode-harness) fails outright."""
+    """Raised when the AI research step (opencode-harness or OpenRouter) fails outright."""
+
+
+class OpenRouterError(AIResearchError):
+    """Raised when the direct OpenRouter API research step fails.
+
+    Subclasses :class:`AIResearchError` so callers that already handle the AI
+    research step keep working unchanged.
+    """
 
 
 class AIResponseParseError(AIResearchError):

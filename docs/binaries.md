@@ -1,10 +1,11 @@
 # Downloadable Binaries — User Guide
 
 The project ships prebuilt, self-contained binaries for every major platform.
-A single binary replaces the Python package: it bundles the app, its Python
-dependencies, and the vendored opencode-harness driver, and on first run it
-downloads the one remaining runtime dependency — the `opencode` CLI — using
-the official installer. No Python, no `pip`, no virtualenv, no build step.
+A single binary replaces the Python package: it bundles the app and its Python
+dependencies. The default AI backend calls the OpenRouter REST API directly
+(set `OPENROUTER_API_KEY`), so no Python, no `pip`, no virtualenv, and no build
+step are required. The optional `--ai-backend opencode` path downloads the
+`opencode` CLI on first run using the official installer.
 
 This guide covers downloading, first-run setup, the CLI, the local JSON
 server, embedding into another application, and how the binaries are built
@@ -52,11 +53,18 @@ pip package's `music-copyright-checker-server` entry point.
 
 ---
 
-## 2. First run: it installs opencode for you
+## 2. First run
 
-The binary does **not** bundle the `opencode` agent — that is a separate,
-~60 MB, independently-updating distribution. On the first AI run, the binary
-looks for `opencode` in this order:
+The default backend needs only `OPENROUTER_API_KEY`:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...        # or put it in the service env file
+```
+
+With the default `--ai-backend openrouter`, no local agent is installed. The
+optional `--ai-backend opencode` path does **not** bundle the `opencode` agent —
+that is a separate, ~60 MB, independently-updating distribution. On the first
+opencode AI run, the binary looks for `opencode` in this order:
 
 1. an explicit path you passed with `--opencode-binary`;
 2. the `PATH`;
@@ -74,7 +82,7 @@ shell rc files are never edited; the binary finds the CLI at
 `~/.opencode/bin` directly. From the second run on, an existing install is
 reused — no re-download.
 
-You still need an authenticated LLM provider for the AI research step:
+For the `opencode` backend you additionally need an authenticated LLM provider:
 
 ```bash
 opencode auth login                # interactive provider setup
@@ -83,7 +91,8 @@ opencode models                    # list models usable by this binary
 ```
 
 Disable the auto-download with `--no-auto-install` on the CLI or server (it
-then errors clearly if opencode is missing).
+then errors clearly if opencode is missing). The default OpenRouter backend
+ignores all of this.
 
 ---
 
@@ -92,6 +101,10 @@ then errors clearly if opencode is missing).
 ```bash
 # Spotify track — URL, URI, or bare id
 ./music-copyright-checker --spotify-url https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6 --pretty
+
+# YouTube Data API v3 — video URL, bare video id, or search query
+./music-copyright-checker --youtube-url https://www.youtube.com/watch?v=dQw4w9WgXcQ --pretty
+./music-copyright-checker --youtube-url "Rick Astley - Never Gonna Give You Up" --pretty
 
 # Local audio file (MP3/FLAC/M4A/OGG/WAV/...)
 ./music-copyright-checker --file ./song.mp3 --pretty
@@ -102,24 +115,29 @@ then errors clearly if opencode is missing).
 # Force fresh research instead of using the cache
 ./music-copyright-checker --spotify-url spotify:track:xxxx --refresh
 
-# Choose a different model
-./music-copyright-checker --spotify-url spotify:track:xxxx --model opencode-go/deepseek-v4-pro
+# Choose a different model (default backend: OpenRouter free router)
+./music-copyright-checker --spotify-url spotify:track:xxxx --model openrouter/free
 
-# Use a running `opencode serve` instead of spawning one process per check
-./music-copyright-checker --spotify-url spotify:track:xxxx --opencode-server http://127.0.0.1:4096
+# Use the opencode CLI agent instead of the OpenRouter API
+./music-copyright-checker --ai-backend opencode --model opencode-go/mimo-v2.5
+
+# Talk to a running `opencode serve` (opencode backend only)
+./music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode --opencode-server http://127.0.0.1:4096
 ```
 
 Full flag list (`./music-copyright-checker --help`):
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--spotify-url` | — | Spotify track URL, URI, or bare id (mutually exclusive with `--file`) |
+| `--spotify-url` | — | Spotify track URL, URI, or bare id (mutually exclusive with the other sources) |
+| `--youtube-url` | — | YouTube Data API v3 video URL, bare 11-char id, or search query (set `YOUTUBE_API_KEY`) |
 | `--file` | — | Path to a local audio file |
-| `--model` | `opencode/big-pickle` | opencode model to run the research |
-| `--opencode-server` | — | Talk to a running `opencode serve` base URL |
+| `--ai-backend` | `openrouter` | AI backend: `openrouter` (REST) or `opencode` (CLI agent) |
+| `--model` | `openrouter/free` | Model override for the active backend |
+| `--opencode-server` | — | Talk to a running `opencode serve` base URL (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable name/path |
 | `--no-auto-install` | — | Do not download opencode if missing |
-| `--timeout` | `900` | AI research timeout, seconds |
+| `--timeout` | `300` / `900` | AI research timeout, seconds (OpenRouter / opencode) |
 | `--no-ai` | — | Metadata only, skip the AI research step |
 | `--cache-path` | `~/.cache/music-copyright-checker/cache.sqlite3` | SQLite cache location |
 | `--no-cache` | — | Disable metadata and research caching |
@@ -163,12 +181,13 @@ proxy/Cloudflare where request timeouts force async processing.
 | --- | --- | --- |
 | `--host` | `127.0.0.1` | Bind address |
 | `--port` | `8080` | Bind port |
-| `--model` | `opencode/big-pickle` | AI model |
-| `--opencode-server` | — | Use a running `opencode serve` |
+| `--ai-backend` | `openrouter` | AI backend: `openrouter` or `opencode` |
+| `--model` | `openrouter/free` | AI model override for the active backend |
+| `--opencode-server` | — | Use a running `opencode serve` (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable name/path |
 | `--no-auto-install` | — | Do not download opencode if missing |
 | `--jobs` | off | Enable the async `/jobs` queue (proxy deployments) |
-| `--timeout` | `900` | Per-request AI research timeout |
+| `--timeout` | `300` / `900` | Per-request AI research timeout (OpenRouter / opencode) |
 | `--no-ai` | — | Metadata-only server (for API testing) |
 | `--cache-path` / `--no-cache` | cache on | SQLite cache control |
 
