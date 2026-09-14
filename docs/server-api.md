@@ -2,16 +2,16 @@
 
 This project exposes the copyright checker through a small JSON HTTP server.
 The server owns one `Pipeline` instance and routes each request through the
-same metadata extraction and Big Pickle AI research flow used by the CLI.
+same metadata extraction and AI research flow used by the CLI.
 
 ## Request Flow
 
 ```text
 client
   -> POST /check
-  -> source identification
+  -> source identification (Spotify / YouTube / local file)
   -> metadata and credits normalization
-  -> Big Pickle research through opencode
+  -> AI licensing research (OpenRouter by default; opencode optional)
   -> structured JSON response
 ```
 
@@ -31,6 +31,8 @@ The server uses a persistent SQLite cache at
 `--no-cache` to disable caching.
 
 - Spotify metadata is keyed by canonical track ID and cached for 12 hours.
+- YouTube metadata is keyed by 11-character video ID (and free-text query -> video ID)
+  and cached for 12 hours.
 - File metadata is keyed by a streaming SHA-256 of the audio and cached for 30 days.
 - Successful AI research is cached for 7 days; partial and not-found results use shorter TTLs.
 - Prompt version and model are part of the AI cache key.
@@ -189,8 +191,8 @@ The value can also be a `spotify:track:...` URI or a bare Spotify track ID.
 
 Send exactly one `youtube_url` field (a watch/youtu.be/shorts/embed URL, a bare
 11-character video id, or a free-text search query) to use the YouTube Data API
-v3 source instead. `YOUTUBE_API_KEY` must be set (the package ships a default
-that can be overridden):
+v3 source instead. `YOUTUBE_API_KEY` must be set (see
+[the YouTube source guide](youtube-source.md)):
 
 ```bash
 curl -X POST http://127.0.0.1:8090/check \
@@ -238,7 +240,7 @@ The upload flow is:
    bitrate, comments, and extra tags. If the title tag is empty, it falls back
    to the original filename stem.
 4. `Pipeline.check_file()` creates the normalized request.
-5. Big Pickle researches the track and licensing sources.
+5. The configured AI backend researches the track and licensing sources.
 6. The response is serialized as JSON.
 7. The temporary file is deleted in a `finally` block.
 

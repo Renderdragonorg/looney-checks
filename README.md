@@ -146,6 +146,14 @@ python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --no-ai  
 python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model openrouter/free --pretty
 ```
 
+## Documentation
+
+- [AI backends](docs/ai-backends.md) — OpenRouter (default) and opencode, keys, models, `.env`.
+- [YouTube Data API v3 source](docs/youtube-source.md) — key setup, accepted inputs, normalized fields, quota.
+- [Server API guide](docs/server-api.md) — `/check`, `/jobs`, `/docs`, deployment.
+- [Downloadable binaries](docs/binaries.md) — prebuilt binaries, CLI flags, CI/release.
+- [v0.3.0 changes and migration](docs/changes-v0.3.0.md) — what changed, upgrading from 0.2.x.
+
 ## JSON server
 
 For complete installation, API, upload, client-integration, and deployment
