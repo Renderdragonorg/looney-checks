@@ -1,13 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for the music-copyright-checker binaries.
 
-Builds a single self-contained executable per platform that serves both the
-CLI and the local JSON server (see music_copyright_checker/entrypoints.py).
+Builds a single self-contained **onedir** distribution per platform that serves
+both the CLI and the local JSON server (see music_copyright_checker/entrypoints.py).
+CI packages the directory as ``.tar.gz`` (Linux/macOS) or ``.zip`` (Windows).
+
+Why onedir and not onefile: a onefile binary re-extracts the whole bundle to a
+temp directory on *every* launch, and macOS then re-scans each extracted file.
+That made warm startup ~17s locally (and much worse with Gatekeeper). onedir
+starts in well under a second once unpacked. See docs/binaries.md.
+
 Run from the repository root:
 
-    pyinstaller --noconfirm packaging/music_copyright_checker.spec
+    pyinstaller --noconfirm --distpath dist packaging/music_copyright_checker.spec
 
-Artifact name: ``music-copyright-checker`` (+ ``.exe`` on Windows).
+Artifact: ``dist/music-copyright-checker/music-copyright-checker`` (+ ``.exe``
+on Windows).
 """
 
 from os.path import dirname, join
@@ -38,9 +46,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="music-copyright-checker",
     debug=False,
     bootloader_ignore_signals=False,
@@ -52,4 +59,13 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name="music-copyright-checker",
 )

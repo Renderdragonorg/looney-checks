@@ -1,8 +1,10 @@
 name: build-binaries
 
-# Builds a self-contained binary for every major platform, runs the test
-# suite and a smoke test, then publishes the binaries as GitHub Release
-# assets when a version tag (vX.Y.Z) is pushed.
+# Builds a self-contained onedir distribution for every major platform, runs
+# the test suite and a smoke test, packages each as a .tar.gz/.zip archive, and
+# publishes those archives as GitHub Release assets when a version tag
+# (vX.Y.Z) is pushed. onedir (not onefile) keeps warm startup fast: onefile
+# re-extracts the whole bundle on every launch.
 #
 # Runners use Blacksmith (https://docs.blacksmith.sh) for faster builds.
 # Blacksmith is available to GitHub *organization* repositories where the
@@ -42,24 +44,24 @@ jobs:
         include:
           - target: linux-x86_64
             runs-on: blacksmith-4vcpu-ubuntu-2404
-            artifact: music-copyright-checker
-            ext: ""
+            exec_ext: ""
+            archive_ext: ".tar.gz"
           - target: linux-aarch64
             runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-            artifact: music-copyright-checker
-            ext: ""
+            exec_ext: ""
+            archive_ext: ".tar.gz"
           - target: windows-x86_64
             runs-on: blacksmith-4vcpu-windows-2025
-            artifact: music-copyright-checker.exe
-            ext: ".exe"
+            exec_ext: ".exe"
+            archive_ext: ".zip"
           - target: macos-aarch64
             runs-on: blacksmith-6vcpu-macos-latest
-            artifact: music-copyright-checker
-            ext: ""
+            exec_ext: ""
+            archive_ext: ".tar.gz"
           - target: macos-x86_64
             runs-on: macos-26-intel
-            artifact: music-copyright-checker
-            ext: ""
+            exec_ext: ""
+            archive_ext: ".tar.gz"
 
     steps:
       - name: Checkout
@@ -92,26 +94,30 @@ jobs:
         run: |
           echo "version=$(python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')" >> "$GITHUB_OUTPUT"
 
-      - name: Build binary with PyInstaller
+      - name: Build onedir distribution with PyInstaller
         run: python -m PyInstaller --noconfirm --distpath dist packaging/music_copyright_checker.spec
 
       - name: Smoke test the binary
         shell: bash
-        run: python packaging/smoke_test.py "dist/${{ matrix.artifact }}"
+        run: python packaging/smoke_test.py "dist/music-copyright-checker/music-copyright-checker${{ matrix.exec_ext }}"
 
-      - name: Rename binary with version and target
-        id: rename
+      - name: Package versioned archive
+        id: package
         shell: bash
         run: |
-          name="music-copyright-checker-${{ steps.version.outputs.version }}-${{ matrix.target }}${{ matrix.ext }}"
-          mv "dist/${{ matrix.artifact }}" "dist/$name"
+          name="music-copyright-checker-${{ steps.version.outputs.version }}-${{ matrix.target }}${{ matrix.archive_ext }}"
+          if [ "${{ matrix.archive_ext }}" = ".zip" ]; then
+            python -c "import shutil; shutil.make_archive('dist/${name%.zip}', 'zip', 'dist', 'music-copyright-checker')"
+          else
+            tar -C dist -czf "dist/$name" music-copyright-checker
+          fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
-      - name: Upload binary as workflow artifact
+      - name: Upload archive as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.rename.outputs.name }}
-          path: dist/${{ steps.rename.outputs.name }}
+          name: ${{ steps.package.outputs.name }}
+          path: dist/${{ steps.package.outputs.name }}
           if-no-files-found: error
 
   release:
@@ -123,7 +129,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download all built binaries
+      - name: Download all built archives
         uses: actions/download-artifact@v4
         with:
           path: artifacts

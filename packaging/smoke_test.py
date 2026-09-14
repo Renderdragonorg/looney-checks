@@ -22,8 +22,18 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _resolve_binary(path: Path) -> Path:
+    """Accept either the executable or its onedir distribution directory."""
+    if path.is_dir():
+        for name in ("music-copyright-checker", "music-copyright-checker.exe"):
+            candidate = path / name
+            if candidate.is_file():
+                return candidate
+    return path
+
+
 def main() -> int:
-    binary = Path(sys.argv[1])
+    binary = _resolve_binary(Path(sys.argv[1]))
     if not binary.is_file():
         print(f"binary not found: {binary}", file=sys.stderr)
         return 1

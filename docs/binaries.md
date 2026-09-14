@@ -1,11 +1,17 @@
 # Downloadable Binaries — User Guide
 
-The project ships prebuilt, self-contained binaries for every major platform.
-A single binary replaces the Python package: it bundles the app and its Python
-dependencies. The default AI backend calls the OpenRouter REST API directly
-(set `OPENROUTER_API_KEY`), so no Python, no `pip`, no virtualenv, and no build
-step are required. The optional `--ai-backend opencode` path downloads the
-`opencode` CLI on first run using the official installer.
+The project ships prebuilt, self-contained **onedir** archives for every major
+platform. An archive replaces the Python package: it bundles the app and its
+Python dependencies. The default AI backend calls the OpenRouter REST API
+directly (set `OPENROUTER_API_KEY`), so no Python, no `pip`, no virtualenv, and
+no build step are required. The optional `--ai-backend opencode` path downloads
+the `opencode` CLI on first run using the official installer.
+
+> **Why an archive and not a single file?** A PyInstaller *onefile* binary
+> re-extracts its entire bundle to a temp directory on every launch, and macOS
+> re-scans each extracted file; that made warm startup ~17s locally. A *onedir*
+> bundle starts in well under a second after it is unpacked. See
+> [§8](#8-build-and-release) for the trade-off.
 
 This guide covers downloading, first-run setup, the CLI, the local JSON
 server, embedding into another application, and how the binaries are built
@@ -15,31 +21,48 @@ and published.
 
 ## 1. What you download
 
-Binaries are published as GitHub Release assets. One file per platform:
+Archives are published as GitHub Release assets. One archive per platform:
 
-| Platform | Asset name |
-| --- | --- |
-| Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64` |
-| Linux arm64 (aarch64) | `music-copyright-checker-<version>-linux-aarch64` |
-| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64` |
-| macOS (Apple Silicon / M-series) | `music-copyright-checker-<version>-macos-aarch64` |
-| Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.exe` |
+| Platform | Asset name | Archive |
+| --- | --- | --- |
+| Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64.tar.gz` | `.tar.gz` |
+| Linux arm64 (aarch64) | `music-copyright-checker-<version>-linux-aarch64.tar.gz` | `.tar.gz` |
+| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64.tar.gz` | `.tar.gz` |
+| macOS (Apple Silicon / M-series) | `music-copyright-checker-<version>-macos-aarch64.tar.gz` | `.tar.gz` |
+| Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.zip` | `.zip` |
 
-Each release also includes `SHA256SUMS` so you can verify the download:
+Extract the archive, then run the launcher inside the `music-copyright-checker/`
+directory:
+
+```bash
+# Linux / macOS
+tar -xzf music-copyright-checker-<version>-<target>.tar.gz
+cd music-copyright-checker
+./music-copyright-checker --help
+```
+
+```powershell
+# Windows (PowerShell)
+Expand-Archive music-copyright-checker-<version>-windows-x86_64.zip .
+cd music-copyright-checker
+.\music-copyright-checker.exe --help
+```
+
+Each release also includes `SHA256SUMS` so you can verify the archive:
 
 ```bash
 # Linux / macOS
 sha256sum -c SHA256SUMS --ignore-missing
 
 # Windows (PowerShell)
-Get-FileHash music-copyright-checker-*-windows-x86_64.exe -Algorithm SHA256
+Get-FileHash music-copyright-checker-*-windows-x86_64.zip -Algorithm SHA256
 ```
 
 > macOS arm64 is built on Apple Silicon (Blacksmith), and macOS x86_64 on a
-> GitHub-hosted Intel runner; Windows arm64 is not shipped. All binaries run
-> natively on their target — no Rosetta or emulation required.
+> GitHub-hosted Intel runner; Windows arm64 is not shipped. Everything runs
+> natively on its target — no Rosetta or emulation required.
 
-The binary is the same program whether you use it as a CLI or as a server.
+The launcher is the same program whether you use it as a CLI or as a server.
 It dispatches on the command:
 
 ```text
@@ -337,12 +360,23 @@ Requires Python 3.9+.
 uv sync --extra build --extra dev        # or: pip install ".[build,dev]"
 uv run python -m PyInstaller --noconfirm --distpath dist packaging/music_copyright_checker.spec
 uv run python packaging/smoke_test.py dist/music-copyright-checker
+
+# Package the onedir directory the same way CI does
+tar -C dist -czf "music-copyright-checker-<version>-<target>.tar.gz" music-copyright-checker
 ```
 
-The spec (`packaging/music_copyright_checker.spec`) produces one self-
-contained executable per platform. PyInstaller does **not** cross-compile —
-build on each target OS/arch. The smoke test starts the binary, exercises the
-CLI, boots the server, and asserts the `/jobs` endpoints are absent.
+The spec (`packaging/music_copyright_checker.spec`) produces a self-contained
+**onedir** distribution (`dist/music-copyright-checker/` containing the
+launcher plus `_internal/`). PyInstaller does **not** cross-compile — build on
+each target OS/arch. The smoke test accepts either the distribution directory
+or the inner executable, starts it, exercises the CLI, boots the server, and
+asserts the `/jobs` endpoints are absent.
+
+We deliberately build onedir rather than onefile: onefile re-extracts the whole
+bundle to a temp directory on every launch (and macOS re-scans each extracted
+file), which made warm startup ~17s on an Intel macOS 12 machine. onedir starts
+in well under a second once unpacked. The cost is that the release asset is an
+archive (~19 MB compressed, ~35 MB unpacked) instead of a single file.
 
 ---
 
@@ -357,15 +391,16 @@ on `workflow_dispatch`, and on `v*` tags:
    - `windows-x86_64` → `blacksmith-4vcpu-windows-2025`
    - `macos-aarch64` → `blacksmith-6vcpu-macos-latest` (Apple Silicon)
    - `macos-x86_64` → `macos-26-intel` (GitHub-hosted; Blacksmith has no Intel macOS)
-2. Each job installs the project, runs the full test suite, builds with
-   PyInstaller, and smoke-tests the artifact.
-3. Artifacts are uploaded to the workflow run.
-4. On a `vX.Y.Z` tag, a `release` job downloads all binaries, writes
+2. Each job installs the project, runs the full test suite, builds the onedir
+   distribution with PyInstaller, smoke-tests it, and packages it as
+   `.tar.gz` (Linux/macOS) or `.zip` (Windows).
+3. Archives are uploaded to the workflow run.
+4. On a `vX.Y.Z` tag, a `release` job downloads all archives, writes
    `SHA256SUMS`, and publishes them as GitHub Release assets (with generated
    release notes).
 
 The version in the asset names comes from `pyproject.toml`, so tagging
-`v0.2.0` publishes `music-copyright-checker-0.2.0-linux-x86_64` and so on.
+`v0.3.1` publishes `music-copyright-checker-0.3.1-linux-x86_64.tar.gz` and so on.
 
 > **Blacksmith note.** Blacksmith runners are available to GitHub
 > *organization* repositories with the Blacksmith app installed. On a
@@ -377,6 +412,12 @@ The version in the asset names comes from `pyproject.toml`, so tagging
 ---
 
 ## 10. Troubleshooting
+
+**First run after extracting is slow, later runs are fast**
+Expected: the first launch loads the freshly unpacked files from disk; the OS
+may also validate them. Subsequent launches should be well under a second. If
+macOS quarantined the downloaded archive, clear it once:
+`xattr -dr com.apple.quarantine music-copyright-checker`.
 
 **"opencode binary not found" and it won't auto-install**
 You passed `--no-auto-install`, or the install step failed. Install manually:

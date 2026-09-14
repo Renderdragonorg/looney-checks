@@ -50,20 +50,22 @@ Audio file ───┘
 
 ## Download a prebuilt binary
 
-Each GitHub Release ships self-contained binaries for every major platform —
-no Python, no `pip`, no build step:
+Each GitHub Release ships a self-contained **onedir** archive for every major
+platform — no Python, no `pip`, no build step. Extract it and run the launcher
+inside:
 
 | Platform | Asset |
 | --- | --- |
-| Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64` |
-| Linux arm64 | `music-copyright-checker-<version>-linux-aarch64` |
-| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64` |
-| macOS (Apple Silicon) | `music-copyright-checker-<version>-macos-aarch64` |
-| Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.exe` |
-
-One binary serves both the CLI and the local JSON server:
+| Linux x86_64 | `music-copyright-checker-<version>-linux-x86_64.tar.gz` |
+| Linux arm64 | `music-copyright-checker-<version>-linux-aarch64.tar.gz` |
+| macOS (Intel) | `music-copyright-checker-<version>-macos-x86_64.tar.gz` |
+| macOS (Apple Silicon) | `music-copyright-checker-<version>-macos-aarch64.tar.gz` |
+| Windows x86_64 | `music-copyright-checker-<version>-windows-x86_64.zip` |
 
 ```bash
+tar -xzf music-copyright-checker-<version>-<target>.tar.gz
+cd music-copyright-checker
+
 # CLI
 ./music-copyright-checker --spotify-url https://open.spotify.com/track/xxxx --pretty
 ./music-copyright-checker --youtube-url https://www.youtube.com/watch?v=xxxxxxxxxxx --pretty
@@ -73,12 +75,19 @@ One binary serves both the CLI and the local JSON server:
 ./music-copyright-checker server --host 127.0.0.1 --port 8080
 ```
 
+On Windows, unzip the archive and run `music-copyright-checker\music-copyright-checker.exe`.
+
+The archive is a directory bundle (not a single file) on purpose: a onefile
+build re-extracts its whole bundle to a temp directory on **every** launch,
+which makes warm startup slow (~17s on macOS). The onedir launcher starts in
+well under a second.
+
 The default AI backend is the OpenRouter REST API, so the only thing you need
 is an OpenRouter key: export `OPENROUTER_API_KEY` (or pass `--ai-backend
 opencode` to use the `opencode` CLI agent instead, which on first run is
 downloaded via the official installer into `~/.opencode/bin`).
 
-Checksums are published next to the binaries in the release (`SHA256SUMS`).
+Checksums are published next to the archives in the release (`SHA256SUMS`).
 
 For everything else — backend/model flags, the full flag reference, embedding
 the local JSON server into another app, building from source, and the
