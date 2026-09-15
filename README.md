@@ -140,6 +140,10 @@ print(result.to_dict())
 result_yt = pipeline.check_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 print(result_yt.to_dict())
 
+# Or search first and let the caller pick from up to 5 candidates (with thumbnails).
+for candidate in pipeline.search_youtube("Rick Astley - Never Gonna Give You Up", limit=5):
+    print(candidate["title"], candidate["thumbnail_url"], candidate["url"])
+
 result2 = pipeline.check_file("/path/to/song.mp3")
 print(result2.to_dict())
 ```
@@ -159,7 +163,7 @@ python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model o
 
 - [AI backends](docs/ai-backends.md) — OpenRouter (default) and opencode, keys, models, `.env`.
 - [YouTube Data API v3 source](docs/youtube-source.md) — key setup, accepted inputs, normalized fields, quota.
-- [Server API guide](docs/server-api.md) — `/check`, `/jobs`, `/docs`, deployment.
+- [Server API guide](docs/server-api.md) — `/check`, `/youtube/search`, `/jobs`, `/docs`, deployment.
 - [Downloadable binaries](docs/binaries.md) — prebuilt binaries, CLI flags, CI/release.
 - [v0.3.0 changes and migration](docs/changes-v0.3.0.md) — what changed, upgrading from 0.2.x.
 
@@ -206,6 +210,16 @@ curl -X POST http://127.0.0.1:8080/check \
   -H 'Content-Type: application/json' \
   -d '{"spotify_url":"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"}' \
   > results/server-result.json
+```
+
+Let the caller choose a YouTube video by searching first: `/youtube/search`
+returns up to five candidates with thumbnails, then send the chosen
+`video_id`/`url` to `/check`:
+
+```bash
+curl -X POST http://127.0.0.1:8080/youtube/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Rick Astley - Never Gonna Give You Up","limit":5}'
 ```
 
 When the server is behind Cloudflare or another proxy, use the asynchronous

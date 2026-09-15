@@ -48,7 +48,7 @@ from .cache import (
     metadata_cache_key,
     research_cache_key,
 )
-from .errors import InvalidYouTubeURLError, MusicCheckerError
+from .errors import InvalidYouTubeURLError, MusicCheckerError, YouTubeLookupError
 from .file_source import FileSource
 from .models import (
     Credit,
@@ -242,6 +242,19 @@ class Pipeline:
             refresh=refresh,
             metadata_cache_hit=metadata_cache_hit,
         )
+
+    def search_youtube(self, query: str, *, limit: int = 5) -> list[Dict[str, Any]]:
+        """Search YouTube for candidates (with thumbnails) instead of auto-picking.
+
+        Lets a controller show the top matches and choose one; pass the chosen
+        ``video_id``/``url`` to :meth:`check_youtube_url` to run the actual
+        copyright check. Free-text queries to :meth:`check_youtube_url` still
+        auto-select the best match.
+        """
+        query = (query or "").strip()
+        if not query:
+            raise YouTubeLookupError("A non-empty search query is required.")
+        return self._youtube.search_videos(query, limit=limit)
 
     def _resolve_youtube_video_id(self, url_or_query: str, *, refresh: bool = False) -> str:
         try:

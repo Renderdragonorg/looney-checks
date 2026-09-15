@@ -206,6 +206,41 @@ category, duration, `licensedContent`, and view counts, then hands the same
 normalized request to the AI researcher. The response shape is identical to the
 Spotify path, with `request.source` set to `youtube`.
 
+### Pick a YouTube Result Before Checking
+
+A free-text query to `/check` auto-selects the best match. When a controller
+needs the user to choose, call `POST /youtube/search` first. It returns up to
+five candidates, each with a thumbnail, and the controller then sends the chosen
+`video_id` or `url` to `/check`:
+
+```bash
+curl -X POST http://127.0.0.1:8090/youtube/search \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"Rick Astley - Never Gonna Give You Up","limit":5}'
+```
+
+```json
+{
+  "query": "Rick Astley - Never Gonna Give You Up",
+  "results": [
+    {
+      "video_id": "dQw4w9WgXcQ",
+      "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+      "channel": "Rick Astley",
+      "channel_id": "UCuAXFkgsw1L7xaCfnd5JJOw",
+      "description": "...",
+      "published_at": "2009-10-25T06:57:33Z",
+      "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
+    }
+  ]
+}
+```
+
+`limit` is optional and capped at 5. `YOUTUBE_API_KEY` must be set. A search
+costs 100 quota units versus 1 for a video lookup, so prefer a URL/id when one
+is already known.
+
 ## 6. Send a Server-Local File
 
 Use this form only when the audio file already exists on the machine running

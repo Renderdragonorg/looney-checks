@@ -40,6 +40,23 @@ class _FakePipeline:
             progress("extracting_metadata", "Fake metadata extracted.")
         return _FakeResult()
 
+    def search_youtube(self, query, *, limit=5):
+        self.last_query = query
+        self.last_limit = limit
+        candidates = [
+            {
+                "video_id": "dQw4w9WgXcQ",
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+                "channel": "Rick Astley",
+                "channel_id": "UCuAXFkgsw1L7xaCfnd5JJOw",
+                "description": "The official video.",
+                "published_at": "2009-10-25T06:57:33Z",
+                "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            }
+        ]
+        return candidates[:limit]
+
 
 class TestServer(unittest.TestCase):
     def setUp(self):
@@ -82,6 +99,9 @@ class TestServerWithJobs(TestServer):
         self.assertIn("client_file_upload", payload["request_modes"])
         self.assertIn("youtube_json", payload["request_modes"])
         self.assertIn("research.sources", payload["response_fields"])
+        search = next(item for item in payload["endpoints"] if item["path"] == "/youtube/search")
+        self.assertEqual(search["method"], "POST")
+        self.assertIn("thumbnail_url", search["response"]["results"][0])
 
     def test_docs_with_jobs_describes_job_endpoints(self):
         from music_copyright_checker.server import _docs_payload
@@ -113,6 +133,44 @@ class TestServerWithJobs(TestServer):
             payload = json.load(response)
         self.assertEqual(payload["research"]["status"], "complete")
         self.assertEqual(self.pipeline.last_value, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+    def test_youtube_search_returns_candidates_with_thumbnails(self):
+        request = Request(
+            f"{self.base_url}/youtube/search",
+            data=json.dumps({"query": "Rick Astley - Never Gonna Give You Up", "limit": 5}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["query"], "Rick Astley - Never Gonna Give You Up")
+        self.assertEqual(self.pipeline.last_limit, 5)
+        candidate = payload["results"][0]
+        self.assertEqual(candidate["video_id"], "dQw4w9WgXcQ")
+        self.assertEqual(candidate["url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertTrue(candidate["thumbnail_url"])
+
+    def test_youtube_search_rejects_empty_query(self):
+        request = Request(
+            f"{self.base_url}/youtube/search",
+            data=json.dumps({"query": "   "}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as error:
+            urlopen(request)
+        self.assertEqual(error.exception.code, 400)
+
+    def test_youtube_search_rejects_bad_limit(self):
+        request = Request(
+            f"{self.base_url}/youtube/search",
+            data=json.dumps({"query": "abc", "limit": 0}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as error:
+            urlopen(request)
+        self.assertEqual(error.exception.code, 400)
 
     def test_check_routes_multipart_file_and_cleans_up(self):
         boundary = "----music-checker-test"

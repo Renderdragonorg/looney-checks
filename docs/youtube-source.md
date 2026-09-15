@@ -80,6 +80,11 @@ A search query is resolved with `search.list` (`type=video`,
 `videoCategoryId=10` "Music", `maxResults=1`). If the Music category returns
 nothing, it retries without the category filter.
 
+When a controller should choose the video, use `search_videos()` /
+`POST /youtube/search` instead: it returns up to 5 candidates (video id, URL,
+title, channel, description, published date, thumbnail) and the chosen id/URL is
+passed back to the normal check.
+
 ---
 
 ## 4. What gets normalized
@@ -132,7 +137,15 @@ print(result.to_dict())
 
 # Or search by name
 result = pipeline.check_youtube_url("Rick Astley - Never Gonna Give You Up")
+
+# Let a controller choose: candidates include titles and thumbnail_url
+candidates = pipeline.search_youtube("Rick Astley - Never Gonna Give You Up", limit=5)
+chosen = candidates[0]["video_id"]
+result = pipeline.check_youtube_url(chosen)
 ```
+
+`YouTubeSource.search_videos(query, limit=5)` is the lower-level equivalent;
+`search_video(query)` still auto-picks the first result.
 
 ### CLI
 
@@ -226,5 +239,9 @@ from music_copyright_checker.youtube_source import (
 ```
 
 - `parse_video_id(value) -> str` — extract the 11-char id from any supported form.
+- `normalize_search_item(item) -> dict | None` — shape one `search.list` item into a
+  candidate (`video_id`, `url`, `title`, `channel`, `channel_id`, `description`,
+  `published_at`, `thumbnail_url`).
 - `YouTubeSource(api_key=None, timeout=30.0)` with
-  `.resolve_video_id(value)`, `.search_video(query)`, `.fetch_video(id)`, `.fetch(value)`.
+  `.resolve_video_id(value)`, `.search_videos(query, limit=5)`, `.search_video(query)`,
+  `.fetch_video(id)`, `.fetch(value)`.

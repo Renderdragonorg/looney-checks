@@ -6,7 +6,7 @@ Guides for the music copyright checker backend.
 
 | Guide | What it covers |
 | --- | --- |
-| [Server API implementation guide](server-api.md) | Running the JSON server and calling `/check`, `/jobs`, `/docs`, `/health` |
+| [Server API implementation guide](server-api.md) | Running the JSON server and calling `/check`, `/youtube/search`, `/jobs`, `/docs`, `/health` |
 | [Downloadable binaries](binaries.md) | Prebuilt binaries, first-run setup, CLI flags, embedding, CI/release |
 | [AI backends](ai-backends.md) | OpenRouter (default) and opencode backends, keys, models, `.env`, troubleshooting |
 | [YouTube Data API v3 source](youtube-source.md) | Getting/configuring a key, accepted inputs, normalized fields, quota, examples |

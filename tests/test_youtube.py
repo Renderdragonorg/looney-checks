@@ -230,6 +230,52 @@ class TestYouTubeSource(unittest.TestCase):
             self.source.search_video("nothing at all")
 
     @patch("music_copyright_checker.youtube_source._request_json")
+    def test_search_videos_returns_candidates_with_thumbnails(self, request_json):
+        request_json.return_value = {
+            "items": [
+                {
+                    "id": {"videoId": "dQw4w9WgXcQ"},
+                    "snippet": {
+                        "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+                        "channelTitle": "Rick Astley",
+                        "channelId": "UCuAXFkgsw1L7xaCfnd5JJOw",
+                        "description": "The official video.",
+                        "publishedAt": "2009-10-25T06:57:33Z",
+                        "thumbnails": {
+                            "default": {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg"},
+                            "high": {"url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"},
+                        },
+                    },
+                },
+                {"id": {"channelId": "UCuAXFkgsw1L7xaCfnd5JJOw"}},
+            ]
+        }
+        results = self.source.search_videos("Rick Astley", limit=5)
+        self.assertEqual(len(results), 1)
+        candidate = results[0]
+        self.assertEqual(candidate["video_id"], "dQw4w9WgXcQ")
+        self.assertEqual(candidate["url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        self.assertEqual(candidate["channel"], "Rick Astley")
+        self.assertEqual(candidate["thumbnail_url"], "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg")
+        _path, params, _timeout = request_json.call_args.args
+        self.assertEqual(params["maxResults"], 5)
+        self.assertEqual(params["videoCategoryId"], "10")
+
+    @patch("music_copyright_checker.youtube_source._request_json")
+    def test_search_videos_clamps_limit(self, request_json):
+        request_json.return_value = {"items": []}
+        with self.assertRaises(YouTubeLookupError):
+            self.source.search_video("nothing")
+        self.source.search_videos("nothing", limit=50)
+        _path, params, _timeout = request_json.call_args.args
+        self.assertEqual(params["maxResults"], 5)
+
+    @patch("music_copyright_checker.youtube_source._request_json")
+    def test_search_videos_no_results_returns_empty(self, request_json):
+        request_json.return_value = {"items": []}
+        self.assertEqual(self.source.search_videos("nothing at all"), [])
+
+    @patch("music_copyright_checker.youtube_source._request_json")
     def test_resolve_video_id_searches_for_free_text(self, request_json):
         request_json.return_value = {"items": [{"id": {"videoId": "dQw4w9WgXcQ"}}]}
         self.assertEqual(self.source.resolve_video_id("Rick Astley - Never Gonna Give You Up"), "dQw4w9WgXcQ")
@@ -289,6 +335,19 @@ class _FakeYouTube:
     def search_video(self, query):
         self.searches += 1
         return "dQw4w9WgXcQ"
+
+    def search_videos(self, query, limit=5):
+        self.searches += 1
+        candidates = [
+            {
+                "video_id": "dQw4w9WgXcQ",
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+                "channel": "Rick Astley",
+                "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            }
+        ]
+        return candidates[:limit]
 
     def fetch_video(self, video_id):
         self.fetches += 1
@@ -371,6 +430,25 @@ class TestPipelineYouTube(unittest.TestCase):
             self.assertEqual(first.request.track.youtube_id, "dQw4w9WgXcQ")
             self.assertIsNotNone(cache.get(metadata_cache_key("youtube-query", "rick astley - never gonna give you up")))
             self.assertTrue(second.ai_meta["cache_hit"])
+
+    def test_search_youtube_returns_candidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = CacheStore(str(Path(directory) / "cache.sqlite3"))
+            pipeline = _pipeline(cache, _FakeYouTube(), _FakeAI())
+
+            results = pipeline.search_youtube("Rick Astley")
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["video_id"], "dQw4w9WgXcQ")
+            self.assertEqual(results[0]["url"], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            self.assertTrue(results[0]["thumbnail_url"])
+
+    def test_search_youtube_rejects_empty_query(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = CacheStore(str(Path(directory) / "cache.sqlite3"))
+            pipeline = _pipeline(cache, _FakeYouTube(), _FakeAI())
+            with self.assertRaises(YouTubeLookupError):
+                pipeline.search_youtube("   ")
 
     def test_json_response_shape(self):
         with tempfile.TemporaryDirectory() as directory:

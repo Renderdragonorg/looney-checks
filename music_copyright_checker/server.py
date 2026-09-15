@@ -24,6 +24,7 @@ from .ai_researcher import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
 from .errors import MusicCheckerError
 from .openrouter_client import DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT
 from .pipeline import Pipeline
+from .youtube_source import DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS
 
 MAX_JSON_BODY_BYTES = 1_000_000
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
@@ -259,6 +260,35 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                 "500": "Unexpected server error.",
             },
         },
+        {
+            "method": "POST",
+            "path": "/youtube/search",
+            "description": (
+                "Search YouTube for candidate videos so the controller can pick one, "
+                "then POST the chosen video_id/url to /check."
+            ),
+            "request": {"query": "Rick Astley - Never Gonna Give You Up", "limit": DEFAULT_SEARCH_RESULTS},
+            "response": {
+                "query": "the submitted query",
+                "results": [
+                    {
+                        "video_id": "dQw4w9WgXcQ",
+                        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                        "title": "Rick Astley - Never Gonna Give You Up (Official Video)",
+                        "channel": "Rick Astley",
+                        "channel_id": "UCuAXFkgsw1L7xaCfnd5JJOw",
+                        "description": "…",
+                        "published_at": "2009-10-25T06:57:33Z",
+                        "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+                    }
+                ],
+            },
+            "errors": {
+                "400": "Missing/empty 'query', or 'limit' is not a positive integer.",
+                "422": "YouTube API error (missing key, quota, ...) or no results.",
+                "500": "Unexpected server error.",
+            },
+        },
     ]
     if jobs_enabled:
         endpoints += [
@@ -286,6 +316,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
         "curl": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"spotify_url\":\"https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT\"}'",
         "curl_youtube": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"}'",
         "curl_youtube_search": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"Rick Astley - Never Gonna Give You Up\"}'",
+        "curl_youtube_search_pick": "curl -X POST http://127.0.0.1:8080/youtube/search -H 'Content-Type: application/json' -d '{\"query\":\"Rick Astley - Never Gonna Give You Up\",\"limit\":5}'",
         "curl_upload": "curl -X POST http://127.0.0.1:8080/check -F 'file=@/path/to/song.mp3'",
         "javascript": "fetch('http://127.0.0.1:8080/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({spotify_url: url})}).then(r => r.json())",
     }
@@ -347,6 +378,11 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                 "content_type": "application/json",
                 "body": {"youtube_url": "https://www.youtube.com/watch?v=..."},
                 "note": "Accepts a watch/youtu.be/shorts/embed URL, a bare 11-character video id, or a free-text search query resolved via the YouTube Data API v3 (requires YOUTUBE_API_KEY).",
+            },
+            "youtube_search_json": {
+                "content_type": "application/json",
+                "body": {"query": "Rick Astley - Never Gonna Give You Up", "limit": DEFAULT_SEARCH_RESULTS},
+                "note": "POST /youtube/search returns up to 5 candidates with thumbnails so the controller can pick one, then POST the chosen video_id/url to /check.",
             },
             "server_file_json": {
                 "content_type": "application/json",
@@ -527,8 +563,50 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json(404, {"error": "Not found"})
 
+    def _handle_youtube_search(self) -> None:
+        """Return YouTube search candidates (with thumbnails) for a controller to pick from."""
+        try:
+            content_length = int(self.headers.get("Content-Length", "-1"))
+        except ValueError:
+            content_length = -1
+        if content_length < 0 or content_length > MAX_JSON_BODY_BYTES:
+            self._send_json(413 if content_length > MAX_JSON_BODY_BYTES else 400, {"error": "Request body must be valid JSON under 1 MB."})
+            return
+
+        body = self.rfile.read(content_length)
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._send_json(400, {"error": "Request body must be valid UTF-8 JSON."})
+            return
+        if not isinstance(payload, dict):
+            self._send_json(400, {"error": "Request body must be a JSON object."})
+            return
+
+        query = payload.get("query")
+        limit = payload.get("limit", DEFAULT_SEARCH_RESULTS)
+        if not isinstance(query, str) or not query.strip():
+            self._send_json(400, {"error": "'query' must be a non-empty string."})
+            return
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            self._send_json(400, {"error": "'limit' must be a positive integer when provided."})
+            return
+
+        try:
+            results = self.server.pipeline.search_youtube(query, limit=min(limit, MAX_SEARCH_RESULTS))
+        except MusicCheckerError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except Exception:
+            self._send_json(500, {"error": "Unexpected server error while searching YouTube."})
+            return
+        self._send_json(200, {"query": query, "results": results})
+
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         path = self.path.split("?", 1)[0]
+        if path == "/youtube/search":
+            self._handle_youtube_search()
+            return
         if path not in {"/check", "/jobs"}:
             self._send_json(404, {"error": "Not found"})
             return

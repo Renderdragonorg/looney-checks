@@ -38,6 +38,8 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 YOUTUBE_MUSIC_CATEGORY_ID = "10"
 MAX_DESCRIPTION_CHARS = 2000
 MAX_NETWORK_ATTEMPTS = 3
+DEFAULT_SEARCH_RESULTS = 5
+MAX_SEARCH_RESULTS = 5
 
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _DURATION_RE = re.compile(
@@ -212,6 +214,33 @@ def _first_thumbnail(snippet: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def normalize_search_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Turn one ``search.list`` item into a lightweight candidate for the UI.
+
+    Search results are only used to let a controller pick a video, so this
+    keeps the identifying fields plus the thumbnail instead of the full
+    :class:`TrackMetadata` shape. Returns ``None`` for items without a usable
+    video id (e.g. channel/playlist results).
+    """
+    if not isinstance(item, dict):
+        return None
+    raw_id = item.get("id")
+    video_id = raw_id.get("videoId") if isinstance(raw_id, dict) else None
+    if not isinstance(video_id, str) or not _VIDEO_ID_RE.match(video_id):
+        return None
+    snippet = item.get("snippet") if isinstance(item.get("snippet"), dict) else {}
+    return {
+        "video_id": video_id,
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "title": snippet.get("title"),
+        "channel": snippet.get("channelTitle"),
+        "channel_id": snippet.get("channelId"),
+        "description": snippet.get("description"),
+        "published_at": snippet.get("publishedAt"),
+        "thumbnail_url": _first_thumbnail(snippet),
+    }
+
+
 def _category_from_snippet(snippet: Dict[str, Any], topic: Dict[str, Any]) -> Optional[str]:
     topics = topic.get("topicCategories")
     if isinstance(topics, list) and any("music" in str(t).lower() for t in topics):
@@ -327,36 +356,54 @@ class YouTubeSource:
                 raise
             return self.search_video(query)
 
-    def search_video(self, query: str) -> str:
-        """Resolve a free-text query to the best-matching music video id."""
+    def search_videos(
+        self, query: str, limit: int = DEFAULT_SEARCH_RESULTS
+    ) -> List[Dict[str, Any]]:
+        """Return up to ``limit`` candidate videos (with thumbnails) for a query.
+
+        Each candidate is a plain dict (``video_id``, ``url``, ``title``,
+        ``channel``, ``channel_id``, ``description``, ``published_at``,
+        ``thumbnail_url``) so a controller can show them and pick one before
+        calling ``fetch_video``/``check_youtube_url``.
+        """
         key = resolve_api_key(self._api_key)
+        limit = max(1, min(int(limit), MAX_SEARCH_RESULTS))
         payload = _request_json(
             "search",
             {
                 "part": "snippet",
                 "type": "video",
-                "maxResults": 1,
+                "maxResults": limit,
                 "videoCategoryId": YOUTUBE_MUSIC_CATEGORY_ID,
                 "q": query,
                 "key": key,
             },
             self._timeout,
         )
-        items = payload.get("items")
-        if not items:
+        results = self._search_results(payload)
+        if not results:
             # A song may be uploaded outside the Music category; retry broadly.
             payload = _request_json(
                 "search",
-                {"part": "snippet", "type": "video", "maxResults": 1, "q": query, "key": key},
+                {"part": "snippet", "type": "video", "maxResults": limit, "q": query, "key": key},
                 self._timeout,
             )
-            items = payload.get("items")
-        if not items:
+            results = self._search_results(payload)
+        return results
+
+    @staticmethod
+    def _search_results(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        items = payload.get("items")
+        if not isinstance(items, list):
+            return []
+        return [candidate for candidate in (normalize_search_item(item) for item in items) if candidate]
+
+    def search_video(self, query: str) -> str:
+        """Resolve a free-text query to the best-matching music video id."""
+        results = self.search_videos(query, limit=1)
+        if not results:
             raise YouTubeLookupError(f"No YouTube video found for query {query!r}.")
-        video_id = (items[0].get("id") or {}).get("videoId") if isinstance(items[0], dict) else None
-        if not video_id:
-            raise YouTubeLookupError(f"YouTube search returned no usable video id for {query!r}.")
-        return video_id
+        return str(results[0]["video_id"])
 
     def fetch_video(self, video_id: str) -> tuple[TrackMetadata, TrackCredits]:
         """Fetch and normalize everything available for a single video id."""
