@@ -6,9 +6,10 @@ licences are needed?") is pluggable. The pipeline supports two backends:
 | Backend | Value | Transport | Default model | Needs |
 | --- | --- | --- | --- | --- |
 | **OpenRouter** (default) | `openrouter` | Direct HTTPS REST call to `openrouter.ai` | `openrouter/free` | `OPENROUTER_API_KEY` |
+| **OpenCode Go** | `opencode-go` | Direct HTTPS REST call to `opencode.ai/zen/go` | `mimo-v2.5` | `OPENCODE_GO_API_KEY` |
 | **opencode** | `opencode` | Local `opencode` CLI agent via the vendored `opencode_harness` | `opencode-go/mimo-v2.5` | `opencode` binary + provider auth |
 
-Both produce the same `ResearchResult`, so `Pipeline.check_*()` and the JSON
+All produce the same `ResearchResult`, so `Pipeline.check_*()` and the JSON
 response contract are identical regardless of backend.
 
 ---
@@ -95,6 +96,30 @@ disable it (not recommended for licensing research).
 
 ---
 
+## 2b. OpenCode Go backend (`opencode-go`)
+
+A second direct REST backend, aimed at the OpenCode Go ("zen/go") endpoint,
+which speaks the same OpenRouter-compatible chat-completions API:
+
+```bash
+--ai-backend opencode-go --model mimo-v2.5
+```
+
+- Auth comes from `OPENCODE_GO_API_KEY` (or `opencode_go_api_key=...`).
+- Base URL defaults to `https://opencode.ai/zen/go/v1`; default model is
+  `mimo-v2.5`; default timeout is 300s.
+- The endpoint sits behind Cloudflare, which rejects the stock Python
+  user-agent (error 1010), so requests send a `User-Agent` **and** an
+  `x-opencode-session` header automatically.
+- Live web research works: the endpoint accepts the `openrouter:web_search`
+  server tool and returns the same `url_citation` annotations as OpenRouter.
+- `mimo-v2.5` is a reasoning model; the client sends
+  `reasoning: {"enabled": false}` so reasoning tokens don't consume the output
+  budget and leave the visible JSON empty/truncated (pass
+  `disable_reasoning=False` to `OpenCodeGoClient` to keep reasoning on).
+
+---
+
 ## 3. opencode backend (optional)
 
 Use this to keep the previous behaviour (a local coding agent with its own
@@ -125,6 +150,10 @@ pipeline = Pipeline()                       # ai_backend="openrouter", model="op
 pipeline = Pipeline(ai_model="anthropic/claude-sonnet-4.5")
 pipeline = Pipeline(openrouter_api_key="sk-or-...")  # else OPENROUTER_API_KEY / .env
 
+# OpenCode Go (OpenRouter-compatible endpoint; needs OPENCODE_GO_API_KEY)
+pipeline = Pipeline(ai_backend="opencode-go")                 # model="mimo-v2.5"
+pipeline = Pipeline(ai_backend="opencode-go", ai_model="mimo-v2.5-pro")
+
 # opencode
 pipeline = Pipeline(ai_backend="opencode", ai_model="opencode-go/mimo-v2.5")
 
@@ -136,12 +165,16 @@ Relevant `Pipeline` parameters:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `ai_backend` | `"openrouter"` | `"openrouter"` or `"opencode"` |
+| `ai_backend` | `"openrouter"` | `"openrouter"`, `"opencode-go"`, or `"opencode"` |
 | `ai_model` | backend default | Model override for the active backend |
 | `openrouter_api_key` | `None` | Falls back to `OPENROUTER_API_KEY` / `.env` |
 | `openrouter_base_url` | `https://openrouter.ai/api/v1` | API base URL |
 | `openrouter_web_search` | `True` | Use the `openrouter:web_search` server tool |
 | `openrouter_timeout` | `300.0` | Per-request timeout (seconds) |
+| `opencode_go_api_key` | `None` | Falls back to `OPENCODE_GO_API_KEY` / `.env` |
+| `opencode_go_base_url` | `https://opencode.ai/zen/go/v1` | OpenCode Go API base URL |
+| `opencode_go_web_search` | `True` | Use the `openrouter:web_search` server tool |
+| `opencode_go_timeout` | `300.0` | Per-request timeout (seconds) |
 
 The legacy `opencode_*` parameters (`opencode_server`, `opencode_binary`,
 `opencode_model`, `opencode_timeout`, `opencode_username`, `opencode_password`,
@@ -153,17 +186,18 @@ The legacy `opencode_*` parameters (`opencode_server`, `opencode_binary`,
 ```bash
 # CLI
 music-copyright-checker --youtube-url "https://www.youtube.com/watch?v=..." --ai-backend openrouter --model openrouter/free
+music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode-go --model mimo-v2.5
 music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode --model opencode-go/mimo-v2.5
 
 # Server
-music-copyright-checker-server --host 127.0.0.1 --port 8080 --ai-backend openrouter --model openrouter/free --timeout 300
+music-copyright-checker-server --host 127.0.0.1 --port 8080 --ai-backend opencode-go --model mimo-v2.5 --timeout 300
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--ai-backend` | `openrouter` | `openrouter` or `opencode` |
+| `--ai-backend` | `openrouter` | `openrouter`, `opencode-go`, or `opencode` |
 | `--model` | backend default | Model override |
-| `--timeout` | `300` (OpenRouter) / `900` (opencode) | Research timeout, seconds |
+| `--timeout` | `300` (OpenRouter / OpenCode Go) / `900` (opencode) | Research timeout, seconds |
 | `--opencode-server` | — | `opencode serve` base URL (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable |
 | `--no-auto-install` | — | Don't download opencode if missing |
@@ -187,6 +221,7 @@ Example `.env` (git-ignored — never commit it):
 
 ```dotenv
 OPENROUTER_API_KEY=sk-or-...
+OPENCODE_GO_API_KEY=...
 YOUTUBE_API_KEY=AIza...
 ```
 
@@ -230,6 +265,9 @@ or model naturally misses the old cache. `refresh=true` (JSON) or `--refresh`
 | `OpenRouter API key is not configured` | Set `OPENROUTER_API_KEY` or pass `openrouter_api_key=`. Fails in ~1s. |
 | `OpenRouter rejected the API key (401/403)` | Bad/expired key, or no credit on the account. Check <https://openrouter.ai/keys>. |
 | `OpenRouter returned an empty completion` | The routed free model returned nothing; retry or pin a specific model. |
+| `OpenCode Go API key is not configured` | Set `OPENCODE_GO_API_KEY` or pass `opencode_go_api_key=`. |
+| `OpenCode Go returned an empty completion` | Reasoning likely ate the output budget; the client disables reasoning by default, so check the model and `--timeout`. |
+| `OpenCode Go request failed (1010)` | Cloudflare blocked the request signature; keep the auto-sent `User-Agent` / `x-opencode-session` headers. |
 | Research takes very long | Free models can be queued/throttled. Pin a paid/faster model or lower `--timeout`. |
 | `ai_model` is `null` in `/health` | Server started with `--no-ai`. |
 

@@ -35,6 +35,12 @@ from .openrouter_client import (
     DEFAULT_OPENROUTER_TIMEOUT,
 )
 from .openrouter_researcher import OpenRouterResearcher
+from .opencode_go_client import (
+    DEFAULT_OPENCODE_GO_BASE_URL,
+    DEFAULT_OPENCODE_GO_MODEL,
+    DEFAULT_OPENCODE_GO_TIMEOUT,
+)
+from .opencode_go_researcher import OpenCodeGoResearcher
 from .cache import (
     DEFAULT_FILE_METADATA_TTL_SECONDS,
     DEFAULT_METADATA_TTL_SECONDS,
@@ -82,13 +88,18 @@ class Pipeline:
         # YouTube Data API v3
         youtube_api_key: Optional[str] = None,
         # AI backend selection
-        ai_backend: str = "openrouter",  # "openrouter" (default) | "opencode"
+        ai_backend: str = "openrouter",  # "openrouter" (default) | "opencode-go" | "opencode"
         ai_model: Optional[str] = None,  # override the backend's default model
         # AI / OpenRouter direct REST (default backend)
         openrouter_api_key: Optional[str] = None,
         openrouter_base_url: str = DEFAULT_OPENROUTER_BASE_URL,
         openrouter_web_search: bool = True,
         openrouter_timeout: float = DEFAULT_OPENROUTER_TIMEOUT,
+        # AI / OpenCode Go direct REST (optional backend)
+        opencode_go_api_key: Optional[str] = None,
+        opencode_go_base_url: str = DEFAULT_OPENCODE_GO_BASE_URL,
+        opencode_go_web_search: bool = True,
+        opencode_go_timeout: float = DEFAULT_OPENCODE_GO_TIMEOUT,
         # AI / opencode-harness (optional legacy backend)
         opencode_server: Optional[str] = None,
         opencode_binary: str = "opencode",
@@ -111,10 +122,12 @@ class Pipeline:
         self._file = FileSource()
         self._run_ai_research = run_ai_research
         self._ai_backend = ai_backend
-        if ai_backend not in {"openrouter", "opencode"}:
-            raise ValueError("ai_backend must be 'openrouter' or 'opencode'.")
+        if ai_backend not in {"openrouter", "opencode-go", "opencode"}:
+            raise ValueError("ai_backend must be 'openrouter', 'opencode-go', or 'opencode'.")
         if ai_backend == "openrouter":
             self._ai_model = ai_model or DEFAULT_OPENROUTER_MODEL
+        elif ai_backend == "opencode-go":
+            self._ai_model = ai_model or DEFAULT_OPENCODE_GO_MODEL
         else:
             self._ai_model = ai_model or opencode_model
         self._metadata_ttl_seconds = metadata_ttl_seconds
@@ -131,6 +144,14 @@ class Pipeline:
                     model=self._ai_model,
                     timeout=openrouter_timeout,
                     web_search=openrouter_web_search,
+                )
+            elif ai_backend == "opencode-go":
+                self._ai = OpenCodeGoResearcher(
+                    api_key=opencode_go_api_key,
+                    base_url=opencode_go_base_url,
+                    model=self._ai_model,
+                    timeout=opencode_go_timeout,
+                    web_search=opencode_go_web_search,
                 )
             else:
                 if opencode_auto_install and opencode_server is None:

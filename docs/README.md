@@ -15,6 +15,7 @@ Guides for the music copyright checker backend.
 
 | Guide | What it covers |
 | --- | --- |
+| [v0.3.1 release notes](changes-v0.3.1.md) | onedir archives for fast startup, asset list, upgrading from 0.3.0 |
 | [v0.3.0 changes and migration](changes-v0.3.0.md) | YouTube source + OpenRouter backend, breaking changes, migration from 0.2.x |
 
 ## Reference

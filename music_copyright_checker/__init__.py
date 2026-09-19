@@ -23,6 +23,7 @@ from .errors import (
     InvalidSpotifyURLError,
     InvalidYouTubeURLError,
     MusicCheckerError,
+    OpenCodeGoError,
     OpenRouterError,
     SpotifyLookupError,
     YouTubeAPIError,
@@ -30,6 +31,8 @@ from .errors import (
 )
 from .openrouter_client import OpenRouterClient
 from .openrouter_researcher import OpenRouterResearcher
+from .opencode_go_client import OpenCodeGoClient
+from .opencode_go_researcher import OpenCodeGoResearcher
 from .cache import CacheStore
 from .models import (
     Credit,
@@ -52,6 +55,8 @@ __all__ = [
     "parse_video_id",
     "OpenRouterClient",
     "OpenRouterResearcher",
+    "OpenCodeGoClient",
+    "OpenCodeGoResearcher",
     "CacheStore",
     "Credit",
     "CopyrightCheckResult",
@@ -73,6 +78,7 @@ __all__ = [
     "AIResearchError",
     "AIResponseParseError",
     "OpenRouterError",
+    "OpenCodeGoError",
 ]
 
 __version__ = "0.3.2"

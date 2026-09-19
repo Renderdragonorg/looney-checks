@@ -43,6 +43,14 @@ class OpenRouterError(AIResearchError):
     """
 
 
+class OpenCodeGoError(AIResearchError):
+    """Raised when the direct OpenCode Go API research step fails.
+
+    Subclasses :class:`AIResearchError` so callers that already handle the AI
+    research step keep working unchanged.
+    """
+
+
 class AIResponseParseError(AIResearchError):
     """Raised when the AI's reply could not be parsed as the expected JSON shape."""
 

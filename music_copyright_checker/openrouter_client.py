@@ -64,7 +64,16 @@ def _ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def _post_json(url: str, body: Dict[str, Any], headers: Dict[str, str], timeout: float) -> Dict[str, Any]:
+def _post_json(
+    url: str,
+    body: Dict[str, Any],
+    headers: Dict[str, str],
+    timeout: float,
+    *,
+    provider: str = "OpenRouter",
+    error_cls: type = OpenRouterError,
+    api_key_env: str = OPENROUTER_API_KEY_ENV,
+) -> Dict[str, Any]:
     """POST JSON, retrying transient network/rate-limit failures, and decode the reply."""
     data = json.dumps(body).encode("utf-8")
     context = _ssl_context()
@@ -82,30 +91,30 @@ def _post_json(url: str, body: Dict[str, Any], headers: Dict[str, str], timeout:
                 time.sleep(0.75 * (attempt + 1))
                 continue
             if exc.code in {401, 403}:
-                raise OpenRouterError(
-                    f"OpenRouter rejected the API key ({exc.code}): {detail or 'unauthorized'}. "
-                    f"Check {OPENROUTER_API_KEY_ENV}."
+                raise error_cls(
+                    f"{provider} rejected the API key ({exc.code}): {detail or 'unauthorized'}. "
+                    f"Check {api_key_env}."
                 ) from exc
-            raise OpenRouterError(f"OpenRouter request failed ({exc.code}): {detail or exc.reason}") from exc
+            raise error_cls(f"{provider} request failed ({exc.code}): {detail or exc.reason}") from exc
         except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if attempt + 1 < MAX_NETWORK_ATTEMPTS:
                 time.sleep(0.75 * (attempt + 1))
                 continue
-            raise OpenRouterError(f"Could not reach the OpenRouter API: {exc}") from exc
+            raise error_cls(f"Could not reach the {provider} API: {exc}") from exc
     else:  # pragma: no cover - loop always breaks or raises
-        raise OpenRouterError(f"Could not reach the OpenRouter API: {last_error}")
+        raise error_cls(f"Could not reach the {provider} API: {last_error}")
 
     try:
         payload = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
-        raise OpenRouterError(f"OpenRouter returned invalid JSON: {exc}") from exc
+        raise error_cls(f"{provider} returned invalid JSON: {exc}") from exc
     if not isinstance(payload, dict):
-        raise OpenRouterError("OpenRouter returned a non-object response.")
+        raise error_cls(f"{provider} returned a non-object response.")
     error = payload.get("error")
     if error:
         message = error.get("message") if isinstance(error, dict) else str(error)
-        raise OpenRouterError(f"OpenRouter API error: {message}")
+        raise error_cls(f"{provider} API error: {message}")
     return payload
 
 
@@ -137,6 +146,11 @@ def _content_to_text(content: Any) -> str:
 class OpenRouterClient:
     """Minimal OpenRouter chat-completions client used by the researcher."""
 
+    provider_label = "OpenRouter"
+    error_class = OpenRouterError
+    api_key_env = OPENROUTER_API_KEY_ENV
+    default_model = DEFAULT_OPENROUTER_MODEL
+
     def __init__(
         self,
         *,
@@ -157,13 +171,21 @@ class OpenRouterClient:
         return "openrouter"
 
     def _resolve_key(self) -> str:
-        key = (self._api_key or os.environ.get(OPENROUTER_API_KEY_ENV) or "").strip()
+        key = (self._api_key or os.environ.get(self.api_key_env) or "").strip()
         if not key:
-            raise OpenRouterError(
-                f"OpenRouter API key is not configured. Set {OPENROUTER_API_KEY_ENV} or pass "
-                "openrouter_api_key=... to Pipeline."
+            raise self.error_class(
+                f"{self.provider_label} API key is not configured. Set {self.api_key_env} or pass "
+                "an explicit api_key=... to Pipeline."
             )
         return key
+
+    def _extra_body(self) -> Dict[str, Any]:
+        """Provider-specific request-body fields (overridden by subclasses)."""
+        return {}
+
+    def _extra_headers(self) -> Dict[str, str]:
+        """Provider-specific request headers (overridden by subclasses)."""
+        return {}
 
     def call(
         self,
@@ -177,7 +199,7 @@ class OpenRouterClient:
         temperature: Optional[float] = None,
     ) -> OpenRouterResult:
         """Run one chat completion and return the normalized result."""
-        model = model or DEFAULT_OPENROUTER_MODEL
+        model = model or self.default_model
         timeout = timeout if timeout is not None else self._timeout
 
         messages: List[Dict[str, Any]] = []
@@ -200,6 +222,7 @@ class OpenRouterClient:
             body["tools"] = tools
         if temperature is not None:
             body["temperature"] = temperature
+        body.update(self._extra_body())
 
         headers = {
             "Authorization": f"Bearer {self._resolve_key()}",
@@ -210,20 +233,29 @@ class OpenRouterClient:
             headers["HTTP-Referer"] = self._app_url
         if self._app_name:
             headers["X-Title"] = self._app_name
+        headers.update(self._extra_headers())
 
-        payload = _post_json(f"{self._base_url}/chat/completions", body, headers, timeout)
+        payload = _post_json(
+            f"{self._base_url}/chat/completions",
+            body,
+            headers,
+            timeout,
+            provider=self.provider_label,
+            error_cls=self.error_class,
+            api_key_env=self.api_key_env,
+        )
         return self._parse(payload, model)
 
-    @staticmethod
-    def _parse(payload: Dict[str, Any], requested_model: str) -> OpenRouterResult:
+    @classmethod
+    def _parse(cls, payload: Dict[str, Any], requested_model: str) -> OpenRouterResult:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise OpenRouterError("OpenRouter returned no completion choices.")
+            raise cls.error_class(f"{cls.provider_label} returned no completion choices.")
         message = choices[0].get("message") if isinstance(choices[0], dict) else None
         message = message if isinstance(message, dict) else {}
         text = _content_to_text(message.get("content")).strip()
         if not text:
-            raise OpenRouterError("OpenRouter returned an empty completion.")
+            raise cls.error_class(f"{cls.provider_label} returned an empty completion.")
 
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
         details = usage.get("completion_tokens_details")

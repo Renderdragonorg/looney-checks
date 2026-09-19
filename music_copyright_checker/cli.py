@@ -17,6 +17,7 @@ import sys
 from .errors import MusicCheckerError
 from .ai_researcher import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
 from .openrouter_client import DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT
+from .opencode_go_client import DEFAULT_OPENCODE_GO_MODEL, DEFAULT_OPENCODE_GO_TIMEOUT
 from .pipeline import Pipeline
 
 
@@ -32,16 +33,17 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.add_argument(
         "--ai-backend",
-        choices=("openrouter", "opencode"),
+        choices=("openrouter", "opencode-go", "opencode"),
         default="openrouter",
-        help="AI backend: OpenRouter REST API (default) or the opencode CLI agent.",
+        help="AI backend: OpenRouter REST API (default), OpenCode Go REST API, or the opencode CLI agent.",
     )
     parser.add_argument(
         "--model",
         default=None,
         help=(
             "Model override for the selected backend. OpenRouter default: "
-            f"{DEFAULT_OPENROUTER_MODEL}; opencode default: {DEFAULT_OPENCODE_MODEL}."
+            f"{DEFAULT_OPENROUTER_MODEL}; OpenCode Go default: {DEFAULT_OPENCODE_GO_MODEL}; "
+            f"opencode default: {DEFAULT_OPENCODE_MODEL}."
         ),
     )
     parser.add_argument("--opencode-server", default=None, help="opencode serve base URL, e.g. http://127.0.0.1:4096")
@@ -63,7 +65,12 @@ def main(argv: list[str] | None = None) -> int:
 
     timeout = args.timeout
     if timeout is None:
-        timeout = DEFAULT_OPENROUTER_TIMEOUT if args.ai_backend == "openrouter" else DEFAULT_OPENCODE_TIMEOUT
+        if args.ai_backend == "openrouter":
+            timeout = DEFAULT_OPENROUTER_TIMEOUT
+        elif args.ai_backend == "opencode-go":
+            timeout = DEFAULT_OPENCODE_GO_TIMEOUT
+        else:
+            timeout = DEFAULT_OPENCODE_TIMEOUT
 
     pipeline = Pipeline(
         ai_backend=args.ai_backend,
@@ -72,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         opencode_binary=args.opencode_binary,
         opencode_timeout=timeout,
         openrouter_timeout=timeout,
+        opencode_go_timeout=timeout,
         run_ai_research=not args.no_ai,
         cache_enabled=not args.no_cache,
         cache_path=args.cache_path,

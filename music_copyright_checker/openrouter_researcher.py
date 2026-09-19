@@ -26,6 +26,8 @@ from .prompts import build_research_prompt
 class OpenRouterResearcher:
     """Wraps :class:`OpenRouterClient` to run the licensing-research prompt."""
 
+    provider_label = "OpenRouter"
+
     def __init__(
         self,
         *,
@@ -64,14 +66,14 @@ class OpenRouterResearcher:
         except MusicCheckerError:
             raise
         except Exception as exc:  # pragma: no cover - defensive
-            raise AIResearchError(f"OpenRouter research call failed: {exc}") from exc
+            raise AIResearchError(f"{self.provider_label} research call failed: {exc}") from exc
 
         if not result.text:
-            raise AIResearchError("OpenRouter research call returned no text output.")
+            raise AIResearchError(f"{self.provider_label} research call returned no text output.")
 
         research_result = parse_research_response(result.text)
         meta = {
-            "mode": "openrouter",
+            "mode": self._client.mode,
             "model": result.model or self._model,
             "session": result.session,
             "cost": result.cost,
