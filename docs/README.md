@@ -8,13 +8,14 @@ Guides for the music copyright checker backend.
 | --- | --- |
 | [Server API implementation guide](server-api.md) | Running the JSON server and calling `/check`, `/youtube/search`, `/jobs`, `/docs`, `/health` |
 | [Downloadable binaries](binaries.md) | Prebuilt binaries, first-run setup, CLI flags, embedding, CI/release |
-| [AI backends](ai-backends.md) | OpenRouter (default) and opencode backends, keys, models, `.env`, troubleshooting |
+| [AI backends](ai-backends.md) | OpenRouter, OpenCode Go, OpenAI-compatible, and opencode backends; Exa web search, AI fallback chains, keys, models, `.env`, troubleshooting |
 | [YouTube Data API v3 source](youtube-source.md) | Getting/configuring a key, accepted inputs, normalized fields, quota, examples |
 
 ## Release notes
 
 | Guide | What it covers |
 | --- | --- |
+| [v0.3.3 release notes](changes-v0.3.3.md) | Exa web search, OpenAI-compatible backend, AI fallback chains, OpenCode Go |
 | [v0.3.1 release notes](changes-v0.3.1.md) | onedir archives for fast startup, asset list, upgrading from 0.3.0 |
 | [v0.3.0 changes and migration](changes-v0.3.0.md) | YouTube source + OpenRouter backend, breaking changes, migration from 0.2.x |
 

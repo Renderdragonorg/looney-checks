@@ -24,6 +24,7 @@ from .ai_researcher import DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
 from .errors import MusicCheckerError
 from .openrouter_client import DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT
 from .opencode_go_client import DEFAULT_OPENCODE_GO_MODEL, DEFAULT_OPENCODE_GO_TIMEOUT
+from .openai_compatible_client import DEFAULT_OPENAI_COMPAT_TIMEOUT
 from .pipeline import Pipeline
 from .youtube_source import DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS
 
@@ -782,18 +783,43 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080).")
     parser.add_argument(
         "--ai-backend",
-        choices=("openrouter", "opencode-go", "opencode"),
+        choices=("openrouter", "opencode-go", "openai-compatible", "opencode"),
         default="openrouter",
-        help="AI backend: OpenRouter REST API (default), OpenCode Go REST API, or the opencode CLI agent.",
+        help="Primary AI backend: OpenRouter REST API (default), OpenCode Go REST API, "
+        "a generic OpenAI-compatible endpoint, or the opencode CLI agent.",
+    )
+    parser.add_argument(
+        "--fallback-ai-backend",
+        dest="fallback_ai_backends",
+        action="append",
+        choices=("openrouter", "opencode-go", "openai-compatible", "opencode"),
+        default=None,
+        metavar="BACKEND",
+        help="Secondary AI backend tried if the primary fails. Repeat for a longer chain.",
     )
     parser.add_argument(
         "--model",
         default=None,
         help=(
-            "Model override for the selected backend. OpenRouter default: "
+            "Model override for the primary backend. OpenRouter default: "
             f"{DEFAULT_OPENROUTER_MODEL}; OpenCode Go default: {DEFAULT_OPENCODE_GO_MODEL}; "
             f"opencode default: {DEFAULT_OPENCODE_MODEL}."
         ),
+    )
+    parser.add_argument(
+        "--search-backend",
+        choices=("auto", "server", "exa", "none"),
+        default="auto",
+        help="Web search mode: 'auto' uses the provider's server tool when available and "
+        "Exa otherwise (default); 'server' forces openrouter:web_search; 'exa' forces the "
+        "client-side Exa tool (needs EXA_API_KEY); 'none' disables web search.",
+    )
+    parser.add_argument("--openai-compatible-base-url", default=None, help="Base URL for the OpenAI-compatible backend.")
+    parser.add_argument("--openai-compatible-model", default=None, help="Model for the OpenAI-compatible backend.")
+    parser.add_argument(
+        "--openai-compatible-api-key-env",
+        default=None,
+        help="Env var holding the key for the OpenAI-compatible endpoint (default: OPENAI_COMPAT_API_KEY).",
     )
     parser.add_argument("--opencode-server", default=None, help="opencode serve base URL.")
     parser.add_argument("--opencode-binary", default="opencode", help="opencode executable name/path.")
@@ -820,17 +846,26 @@ def main(argv: Optional[list[str]] = None) -> int:
             timeout = DEFAULT_OPENROUTER_TIMEOUT
         elif args.ai_backend == "opencode-go":
             timeout = DEFAULT_OPENCODE_GO_TIMEOUT
+        elif args.ai_backend == "openai-compatible":
+            timeout = DEFAULT_OPENAI_COMPAT_TIMEOUT
         else:
             timeout = DEFAULT_OPENCODE_TIMEOUT
     effective_model = args.model or {
         "openrouter": DEFAULT_OPENROUTER_MODEL,
         "opencode-go": DEFAULT_OPENCODE_GO_MODEL,
+        "openai-compatible": args.openai_compatible_model or os.environ.get("OPENAI_COMPAT_MODEL") or "",
         "opencode": DEFAULT_OPENCODE_MODEL,
     }[args.ai_backend]
 
     pipeline = Pipeline(
         ai_backend=args.ai_backend,
+        ai_fallback_backends=args.fallback_ai_backends,
         ai_model=args.model,
+        web_search_backend=args.search_backend,
+        openai_compatible_base_url=args.openai_compatible_base_url,
+        openai_compatible_model=args.openai_compatible_model,
+        openai_compatible_api_key_env=args.openai_compatible_api_key_env,
+        openai_compatible_timeout=timeout,
         opencode_server=args.opencode_server,
         opencode_binary=args.opencode_binary,
         opencode_timeout=timeout,

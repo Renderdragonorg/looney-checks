@@ -26,9 +26,11 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from .ai_researcher import AIResearcher, DEFAULT_OPENCODE_MODEL, DEFAULT_OPENCODE_TIMEOUT
+from .exa_search import DEFAULT_EXA_BASE_URL
+from .fallback_researcher import FallbackResearcher
 from .openrouter_client import (
     DEFAULT_OPENROUTER_BASE_URL,
     DEFAULT_OPENROUTER_MODEL,
@@ -41,6 +43,8 @@ from .opencode_go_client import (
     DEFAULT_OPENCODE_GO_TIMEOUT,
 )
 from .opencode_go_researcher import OpenCodeGoResearcher
+from .openai_compatible_client import DEFAULT_OPENAI_COMPAT_TIMEOUT
+from .openai_compatible_researcher import OpenAICompatibleResearcher
 from .cache import (
     DEFAULT_FILE_METADATA_TTL_SECONDS,
     DEFAULT_METADATA_TTL_SECONDS,
@@ -88,8 +92,15 @@ class Pipeline:
         # YouTube Data API v3
         youtube_api_key: Optional[str] = None,
         # AI backend selection
-        ai_backend: str = "openrouter",  # "openrouter" (default) | "opencode-go" | "opencode"
-        ai_model: Optional[str] = None,  # override the backend's default model
+        ai_backend: str = "openrouter",  # primary backend (see _VALID_AI_BACKENDS)
+        ai_fallback_backends: Optional[Sequence[str]] = None,  # tried in order if primary fails
+        ai_model: Optional[str] = None,  # override the primary backend's default model
+        ai_models: Optional[Mapping[str, str]] = None,  # per-backend model overrides
+        # Web search
+        web_search_backend: str = "auto",  # "auto" | "server" | "exa" | "none"
+        exa_api_key: Optional[str] = None,
+        exa_base_url: str = DEFAULT_EXA_BASE_URL,
+        exa_timeout: Optional[float] = None,
         # AI / OpenRouter direct REST (default backend)
         openrouter_api_key: Optional[str] = None,
         openrouter_base_url: str = DEFAULT_OPENROUTER_BASE_URL,
@@ -100,6 +111,13 @@ class Pipeline:
         opencode_go_base_url: str = DEFAULT_OPENCODE_GO_BASE_URL,
         opencode_go_web_search: bool = True,
         opencode_go_timeout: float = DEFAULT_OPENCODE_GO_TIMEOUT,
+        # AI / generic OpenAI-compatible direct REST (optional backend)
+        openai_compatible_api_key: Optional[str] = None,
+        openai_compatible_base_url: Optional[str] = None,
+        openai_compatible_model: Optional[str] = None,
+        openai_compatible_api_key_env: Optional[str] = None,
+        openai_compatible_web_search: bool = True,
+        openai_compatible_timeout: Optional[float] = None,
         # AI / opencode-harness (optional legacy backend)
         opencode_server: Optional[str] = None,
         opencode_binary: str = "opencode",
@@ -122,14 +140,55 @@ class Pipeline:
         self._file = FileSource()
         self._run_ai_research = run_ai_research
         self._ai_backend = ai_backend
-        if ai_backend not in {"openrouter", "opencode-go", "opencode"}:
-            raise ValueError("ai_backend must be 'openrouter', 'opencode-go', or 'opencode'.")
-        if ai_backend == "openrouter":
-            self._ai_model = ai_model or DEFAULT_OPENROUTER_MODEL
-        elif ai_backend == "opencode-go":
-            self._ai_model = ai_model or DEFAULT_OPENCODE_GO_MODEL
-        else:
-            self._ai_model = ai_model or opencode_model
+        self._ai_model_override = ai_model
+        self._ai_models: Dict[str, str] = {str(k): str(v) for k, v in (ai_models or {}).items()}
+        fallback_backends = [str(backend) for backend in (ai_fallback_backends or [])]
+        self._ai_backends = [ai_backend, *fallback_backends]
+        invalid = [backend for backend in self._ai_backends if backend not in self._VALID_AI_BACKENDS]
+        if invalid:
+            allowed = ", ".join(sorted(self._VALID_AI_BACKENDS))
+            raise ValueError(f"ai_backend/ai_fallback_backends must be one of: {allowed}.")
+
+        # Web search config shared by every REST backend.
+        self._web_search_backend = web_search_backend
+        self._exa_api_key = exa_api_key
+        self._exa_base_url = exa_base_url
+        self._exa_timeout = exa_timeout
+
+        # Per-backend connection settings.
+        self._openrouter_api_key = openrouter_api_key
+        self._openrouter_base_url = openrouter_base_url
+        self._openrouter_web_search = openrouter_web_search
+        self._openrouter_timeout = openrouter_timeout
+        self._opencode_go_api_key = opencode_go_api_key
+        self._opencode_go_base_url = opencode_go_base_url
+        self._opencode_go_web_search = opencode_go_web_search
+        self._opencode_go_timeout = opencode_go_timeout
+        self._openai_compatible_api_key = openai_compatible_api_key
+        self._openai_compatible_base_url = openai_compatible_base_url
+        self._openai_compatible_model = openai_compatible_model
+        self._openai_compatible_api_key_env = openai_compatible_api_key_env
+        self._openai_compatible_web_search = openai_compatible_web_search
+        self._openai_compatible_timeout = (
+            openai_compatible_timeout if openai_compatible_timeout is not None else DEFAULT_OPENAI_COMPAT_TIMEOUT
+        )
+        self._opencode_server = opencode_server
+        self._opencode_binary = opencode_binary
+        self._opencode_model = opencode_model
+        self._opencode_auto_approve = opencode_auto_approve
+        self._opencode_timeout = opencode_timeout
+        self._opencode_username = opencode_username
+        self._opencode_password = opencode_password
+        self._opencode_auto_install = opencode_auto_install
+
+        self._ai_model = self._model_for(ai_backend) or self._default_model_for(ai_backend)
+        # Cache identity covers the whole chain so a fallback result is never
+        # served as if the primary backend produced it.
+        self._ai_cache_identity = "|".join(
+            f"{backend}:{self._model_for(backend) or self._default_model_for(backend)}"
+            for backend in self._ai_backends
+        )
+
         self._metadata_ttl_seconds = metadata_ttl_seconds
         self._file_metadata_ttl_seconds = file_metadata_ttl_seconds
         self._research_ttl_seconds = research_ttl_seconds
@@ -137,36 +196,79 @@ class Pipeline:
         self._in_flight = InFlight()
         self._ai: Optional[Any] = None
         if run_ai_research:
-            if ai_backend == "openrouter":
-                self._ai = OpenRouterResearcher(
-                    api_key=openrouter_api_key,
-                    base_url=openrouter_base_url,
-                    model=self._ai_model,
-                    timeout=openrouter_timeout,
-                    web_search=openrouter_web_search,
-                )
-            elif ai_backend == "opencode-go":
-                self._ai = OpenCodeGoResearcher(
-                    api_key=opencode_go_api_key,
-                    base_url=opencode_go_base_url,
-                    model=self._ai_model,
-                    timeout=opencode_go_timeout,
-                    web_search=opencode_go_web_search,
-                )
-            else:
-                if opencode_auto_install and opencode_server is None:
-                    from .bootstrap import ensure_opencode
+            researchers = [self._build_researcher(backend) for backend in self._ai_backends]
+            self._ai = researchers[0] if len(researchers) == 1 else FallbackResearcher(researchers)
 
-                    opencode_binary = ensure_opencode(opencode_binary, auto_install=True)
-                self._ai = AIResearcher(
-                    server=opencode_server,
-                    binary=opencode_binary,
-                    model=self._ai_model,
-                    auto_approve=opencode_auto_approve,
-                    timeout=opencode_timeout,
-                    username=opencode_username,
-                    password=opencode_password,
-                )
+    # -- AI backend construction ---------------------------------------
+
+    _VALID_AI_BACKENDS = {"openrouter", "opencode-go", "openai-compatible", "opencode"}
+
+    def _default_model_for(self, backend: str) -> str:
+        if backend == "openrouter":
+            return DEFAULT_OPENROUTER_MODEL
+        if backend == "opencode-go":
+            return DEFAULT_OPENCODE_GO_MODEL
+        if backend == "openai-compatible":
+            return self._openai_compatible_model or os.environ.get("OPENAI_COMPAT_MODEL") or ""
+        return self._opencode_model or DEFAULT_OPENCODE_MODEL
+
+    def _model_for(self, backend: str) -> str:
+        if backend == self._ai_backend and self._ai_model_override:
+            return self._ai_model_override
+        override = self._ai_models.get(backend)
+        if override:
+            return override
+        return self._default_model_for(backend)
+
+    def _build_researcher(self, backend: str) -> Any:
+        model = self._model_for(backend)
+        shared = {
+            "search_backend": self._web_search_backend,
+            "exa_api_key": self._exa_api_key,
+            "exa_base_url": self._exa_base_url,
+            "exa_timeout": self._exa_timeout,
+        }
+        if backend == "openrouter":
+            return OpenRouterResearcher(
+                api_key=self._openrouter_api_key,
+                base_url=self._openrouter_base_url,
+                model=model or DEFAULT_OPENROUTER_MODEL,
+                timeout=self._openrouter_timeout,
+                web_search=self._openrouter_web_search,
+                **shared,
+            )
+        if backend == "opencode-go":
+            return OpenCodeGoResearcher(
+                api_key=self._opencode_go_api_key,
+                base_url=self._opencode_go_base_url,
+                model=model or DEFAULT_OPENCODE_GO_MODEL,
+                timeout=self._opencode_go_timeout,
+                web_search=self._opencode_go_web_search,
+                **shared,
+            )
+        if backend == "openai-compatible":
+            return OpenAICompatibleResearcher(
+                api_key=self._openai_compatible_api_key,
+                base_url=self._openai_compatible_base_url,
+                model=model or None,
+                timeout=self._openai_compatible_timeout,
+                api_key_env=self._openai_compatible_api_key_env,
+                web_search=self._openai_compatible_web_search,
+                **shared,
+            )
+        if self._opencode_auto_install and self._opencode_server is None:
+            from .bootstrap import ensure_opencode
+
+            self._opencode_binary = ensure_opencode(self._opencode_binary, auto_install=True)
+        return AIResearcher(
+            server=self._opencode_server,
+            binary=self._opencode_binary,
+            model=model or DEFAULT_OPENCODE_MODEL,
+            auto_approve=self._opencode_auto_approve,
+            timeout=self._opencode_timeout,
+            username=self._opencode_username,
+            password=self._opencode_password,
+        )
 
     # -- public API ---------------------------------------------------
 
@@ -391,7 +493,7 @@ class Pipeline:
 
         cache_key = research_cache_key(
             request,
-            model=self._ai_model,
+            model=getattr(self, "_ai_cache_identity", None) or self._ai_model,
             prompt_version=RESEARCH_PROMPT_VERSION,
             fallback_identity=fallback_identity,
         )

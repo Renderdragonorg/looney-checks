@@ -64,10 +64,11 @@ export OPENROUTER_API_KEY=sk-or-...
 ```
 
 The default backend is OpenRouter with the free model router (`openrouter/free`).
-The server accepts a different backend with `--ai-backend opencode` (which needs
-the `opencode` executable and an authenticated OpenCode provider) and a
-different model with `--model`, but the structured response contract remains the
-same.
+The server accepts other backends with `--ai-backend`
+(`opencode-go`, `openai-compatible`, or `opencode`), a different model with
+`--model`, and failover endpoints with `--fallback-ai-backend` (repeatable), but
+the structured response contract remains the same. See the
+[AI backends guide](ai-backends.md).
 
 ## 2. Start the Server
 

@@ -51,6 +51,18 @@ class OpenCodeGoError(AIResearchError):
     """
 
 
+class OpenAICompatibleError(AIResearchError):
+    """Raised when a generic OpenAI-compatible chat-completions backend fails."""
+
+
+class ExaSearchError(AIResearchError):
+    """Raised when Exa-backed web search fails or is not configured."""
+
+
+class AllBackendsFailedError(AIResearchError):
+    """Raised when every endpoint in the AI fallback chain failed."""
+
+
 class AIResponseParseError(AIResearchError):
     """Raised when the AI's reply could not be parsed as the expected JSON shape."""
 

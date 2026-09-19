@@ -1,12 +1,14 @@
 # AI Backends Guide
 
 The licensing research step ("given this track's metadata, who owns it and what
-licences are needed?") is pluggable. The pipeline supports two backends:
+licences are needed?") is pluggable. The pipeline supports several backends,
+and any of them can be chained as a primary/secondary fallback:
 
 | Backend | Value | Transport | Default model | Needs |
 | --- | --- | --- | --- | --- |
 | **OpenRouter** (default) | `openrouter` | Direct HTTPS REST call to `openrouter.ai` | `openrouter/free` | `OPENROUTER_API_KEY` |
 | **OpenCode Go** | `opencode-go` | Direct HTTPS REST call to `opencode.ai/zen/go` | `mimo-v2.5` | `OPENCODE_GO_API_KEY` |
+| **OpenAI-compatible** | `openai-compatible` | Direct HTTPS REST call to any OpenAI-compatible endpoint | none (must be set) | `OPENAI_COMPAT_API_KEY` + model |
 | **opencode** | `opencode` | Local `opencode` CLI agent via the vendored `opencode_harness` | `opencode-go/mimo-v2.5` | `opencode` binary + provider auth |
 
 All produce the same `ResearchResult`, so `Pipeline.check_*()` and the JSON
@@ -23,9 +25,12 @@ response contract are identical regardless of backend.
    composition/sync rights from master rights, never invent URLs, emit strict
    JSON).
 3. The backend runs the prompt:
-   - **OpenRouter** — one `POST /api/v1/chat/completions` with the
+   - **OpenRouter / OpenCode Go** — one `POST /chat/completions` with the
      `openrouter:web_search` server tool enabled, so the model can search the
      live web itself.
+   - **OpenAI-compatible** — `POST /chat/completions` with a client-side
+     `web_search` function tool; when the model calls it, the pipeline queries
+     Exa and feeds the results back (see §2d).
    - **opencode** — spawns `opencode run --format json` and lets the agent use
      its own web-browsing tools.
 4. `ai_researcher.parse_research_response()` parses the model's reply
@@ -120,6 +125,99 @@ which speaks the same OpenRouter-compatible chat-completions API:
 
 ---
 
+## 2c. OpenAI-compatible backend (`openai-compatible`)
+
+For any hosted or self-hosted endpoint that speaks the OpenAI
+`/chat/completions` shape but does not implement OpenRouter's server-side
+search tool (OpenAI, Groq, Together, vLLM, a local gateway, ...).
+
+```bash
+export OPENAI_COMPAT_API_KEY=...
+export OPENAI_COMPAT_BASE_URL=https://api.openai.com/v1   # optional, this is the default
+export OPENAI_COMPAT_MODEL=gpt-4.1-mini                   # or pass --model / model=
+
+music-copyright-checker --youtube-url "..." --ai-backend openai-compatible --model gpt-4.1-mini
+```
+
+- A model is **required** (via `--model`, `openai_compatible_model=`, or
+  `OPENAI_COMPAT_MODEL`); construction fails fast without one.
+- `openai_compatible_api_key_env` / `--openai-compatible-api-key-env` let you
+  point at a different key variable.
+- Because the endpoint has no `openrouter:web_search`, live research runs
+  through the client-side Exa tool in §2d, so `EXA_API_KEY` is **required** when
+  web search is enabled.
+
+---
+
+## 2d. Web search (`server` vs `exa`)
+
+Web search has two transports, selected with `web_search_backend` /
+`--search-backend`:
+
+| Mode | Behaviour |
+| --- | --- |
+| `auto` (default) | Use `openrouter:web_search` when the backend supports it (OpenRouter, OpenCode Go); otherwise use the Exa function tool. |
+| `server` | Force `openrouter:web_search`. Errors on providers that don't support it. |
+| `exa` | Force the client-side Exa function tool. Requires `EXA_API_KEY`. |
+| `none` | Disable web search entirely. |
+
+The Exa path advertises a normal function tool to the model and runs a bounded
+tool loop (up to 6 rounds): the model calls `web_search`, the pipeline queries
+Exa's REST API, appends the results as a `role: "tool"` message, and calls the
+model again until it produces a final answer.
+
+```bash
+export EXA_API_KEY=...
+music-copyright-checker --youtube-url "..." --ai-backend openai-compatible --model gpt-4.1-mini --search-backend exa
+```
+
+**Exa is required for providers without the OpenRouter server tool** — a
+missing `EXA_API_KEY` raises `ExaSearchError` before any completion is billed.
+
+---
+
+## 2e. AI fallback chain (primary + secondaries)
+
+Any backend list can be chained: the pipeline tries the primary first and
+falls back to each configured endpoint in order when one fails (missing key,
+401/403, rate limit, timeout, bad response).
+
+```python
+# Python: OpenRouter primary, OpenCode Go then a generic endpoint as fallbacks
+pipeline = Pipeline(
+    ai_backend="openrouter",
+    ai_fallback_backends=["opencode-go", "openai-compatible"],
+    openai_compatible_model="gpt-4.1-mini",
+    ai_models={"opencode-go": "mimo-v2.5-pro"},   # optional per-backend model
+)
+```
+
+```bash
+# CLI / server: repeat the flag for a longer chain
+music-copyright-checker --youtube-url "..." \
+  --ai-backend openrouter \
+  --fallback-ai-backend opencode-go \
+  --fallback-ai-backend openai-compatible \
+  --openai-compatible-model gpt-4.1-mini
+```
+
+`ai_meta` records the outcome:
+
+```json
+{
+  "provider": "OpenCode Go",
+  "fallback_used": true,
+  "fallback_attempts": 2,
+  "fallback_failures": [{ "provider": "OpenRouter", "error": "..." }]
+}
+```
+
+When every endpoint fails the pipeline raises `AllBackendsFailedError` (a
+subclass of `AIResearchError`). The research cache key covers the whole chain,
+so a fallback result is never served as if the primary produced it.
+
+---
+
 ## 3. opencode backend (optional)
 
 Use this to keep the previous behaviour (a local coding agent with its own
@@ -165,16 +263,28 @@ Relevant `Pipeline` parameters:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `ai_backend` | `"openrouter"` | `"openrouter"`, `"opencode-go"`, or `"opencode"` |
-| `ai_model` | backend default | Model override for the active backend |
+| `ai_backend` | `"openrouter"` | Primary backend: `"openrouter"`, `"opencode-go"`, `"openai-compatible"`, or `"opencode"` |
+| `ai_fallback_backends` | `None` | Ordered secondary backends tried if the primary fails |
+| `ai_model` | backend default | Model override for the primary backend |
+| `ai_models` | `None` | Per-backend model overrides, e.g. `{"opencode-go": "mimo-v2.5-pro"}` |
+| `web_search_backend` | `"auto"` | `"auto"`, `"server"`, `"exa"`, or `"none"` |
+| `exa_api_key` | `None` | Falls back to `EXA_API_KEY` / `.env` |
+| `exa_base_url` | `https://api.exa.ai` | Exa API base URL |
+| `exa_timeout` | `30.0` | Exa search timeout (seconds) |
 | `openrouter_api_key` | `None` | Falls back to `OPENROUTER_API_KEY` / `.env` |
 | `openrouter_base_url` | `https://openrouter.ai/api/v1` | API base URL |
-| `openrouter_web_search` | `True` | Use the `openrouter:web_search` server tool |
+| `openrouter_web_search` | `True` | Allow web search on this backend |
 | `openrouter_timeout` | `300.0` | Per-request timeout (seconds) |
 | `opencode_go_api_key` | `None` | Falls back to `OPENCODE_GO_API_KEY` / `.env` |
 | `opencode_go_base_url` | `https://opencode.ai/zen/go/v1` | OpenCode Go API base URL |
-| `opencode_go_web_search` | `True` | Use the `openrouter:web_search` server tool |
+| `opencode_go_web_search` | `True` | Allow web search on this backend |
 | `opencode_go_timeout` | `300.0` | Per-request timeout (seconds) |
+| `openai_compatible_api_key` | `None` | Falls back to `OPENAI_COMPAT_API_KEY` / `.env` |
+| `openai_compatible_base_url` | `None` | Falls back to `OPENAI_COMPAT_BASE_URL` (default `https://api.openai.com/v1`) |
+| `openai_compatible_model` | `None` | Falls back to `OPENAI_COMPAT_MODEL` (required) |
+| `openai_compatible_api_key_env` | `None` | Override the key env var name |
+| `openai_compatible_web_search` | `True` | Allow web search (Exa) on this backend |
+| `openai_compatible_timeout` | `300.0` | Per-request timeout (seconds) |
 
 The legacy `opencode_*` parameters (`opencode_server`, `opencode_binary`,
 `opencode_model`, `opencode_timeout`, `opencode_username`, `opencode_password`,
@@ -187,6 +297,7 @@ The legacy `opencode_*` parameters (`opencode_server`, `opencode_binary`,
 # CLI
 music-copyright-checker --youtube-url "https://www.youtube.com/watch?v=..." --ai-backend openrouter --model openrouter/free
 music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode-go --model mimo-v2.5
+music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend openai-compatible --model gpt-4.1-mini
 music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode --model opencode-go/mimo-v2.5
 
 # Server
@@ -195,9 +306,14 @@ music-copyright-checker-server --host 127.0.0.1 --port 8080 --ai-backend opencod
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--ai-backend` | `openrouter` | `openrouter`, `opencode-go`, or `opencode` |
-| `--model` | backend default | Model override |
-| `--timeout` | `300` (OpenRouter / OpenCode Go) / `900` (opencode) | Research timeout, seconds |
+| `--ai-backend` | `openrouter` | Primary backend (`openrouter`, `opencode-go`, `openai-compatible`, `opencode`) |
+| `--fallback-ai-backend` | — | Secondary backend; repeat for a longer chain |
+| `--model` | backend default | Model override for the primary backend |
+| `--search-backend` | `auto` | `auto`, `server`, `exa`, or `none` |
+| `--openai-compatible-base-url` | `OPENAI_COMPAT_BASE_URL` | Base URL for the OpenAI-compatible backend |
+| `--openai-compatible-model` | `OPENAI_COMPAT_MODEL` | Model for the OpenAI-compatible backend |
+| `--openai-compatible-api-key-env` | `OPENAI_COMPAT_API_KEY` | Key env var for the OpenAI-compatible backend |
+| `--timeout` | `300` (REST) / `900` (opencode) | Research timeout, seconds |
 | `--opencode-server` | — | `opencode serve` base URL (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable |
 | `--no-auto-install` | — | Don't download opencode if missing |
@@ -222,6 +338,12 @@ Example `.env` (git-ignored — never commit it):
 ```dotenv
 OPENROUTER_API_KEY=sk-or-...
 OPENCODE_GO_API_KEY=...
+# Generic OpenAI-compatible backend (optional)
+OPENAI_COMPAT_API_KEY=...
+OPENAI_COMPAT_BASE_URL=https://api.openai.com/v1
+OPENAI_COMPAT_MODEL=gpt-4.1-mini
+# Web search for providers without OpenRouter's server tool (optional)
+EXA_API_KEY=...
 YOUTUBE_API_KEY=AIza...
 ```
 
@@ -245,6 +367,8 @@ Every result carries `ai_meta`. For OpenRouter it looks like:
 
 `mode` distinguishes the backend. `model` is the model that actually served the
 request (for the free router this differs from the requested `openrouter/free`).
+When a fallback chain is configured, `provider`, `fallback_used`,
+`fallback_attempts`, and `fallback_failures` are added (see §2e).
 
 ---
 
@@ -253,8 +377,9 @@ request (for the free router this differs from the requested `openrouter/free`).
 Research is cached in SQLite (`~/.cache/music-copyright-checker/cache.sqlite3`)
 by `research:v1:<identity>:<prompt_version>:<model>:<payload_hash>`. The model
 string and `RESEARCH_PROMPT_VERSION` are part of the key, so switching backend
-or model naturally misses the old cache. `refresh=true` (JSON) or `--refresh`
-(CLI) bypasses the cache.
+or model naturally misses the old cache. With a fallback chain, the key covers
+every backend/model in the chain so a fallback result is not reused as the
+primary's. `refresh=true` (JSON) or `--refresh` (CLI) bypasses the cache.
 
 ---
 
@@ -268,6 +393,10 @@ or model naturally misses the old cache. `refresh=true` (JSON) or `--refresh`
 | `OpenCode Go API key is not configured` | Set `OPENCODE_GO_API_KEY` or pass `opencode_go_api_key=`. |
 | `OpenCode Go returned an empty completion` | Reasoning likely ate the output budget; the client disables reasoning by default, so check the model and `--timeout`. |
 | `OpenCode Go request failed (1010)` | Cloudflare blocked the request signature; keep the auto-sent `User-Agent` / `x-opencode-session` headers. |
+| `Exa web search is not configured` | A non-OpenRouter backend needs `EXA_API_KEY` (or `--search-backend none` to disable search). |
+| `Exa rejected the API key (401/403)` | Bad/expired Exa key. Check <https://dashboard.exa.ai>. |
+| `exceeded N web-search rounds` | The model kept calling `web_search` without answering; use a model with better tool use or raise `max_tool_rounds`. |
+| `All AI backends failed (...)` | Every endpoint in the fallback chain failed; the message lists each provider's error. |
 | Research takes very long | Free models can be queued/throttled. Pin a paid/faster model or lower `--timeout`. |
 | `ai_model` is `null` in `/health` | Server started with `--no-ai`. |
 
@@ -280,7 +409,8 @@ or model naturally misses the old cache. `refresh=true` (JSON) or `--refresh`
 
 ## 9. Security
 
-- Keep `OPENROUTER_API_KEY` (and `YOUTUBE_API_KEY`) server-side only; never send
-  them from a browser client.
+- Keep `OPENROUTER_API_KEY`, `OPENCODE_GO_API_KEY`, `OPENAI_COMPAT_API_KEY`,
+  `EXA_API_KEY` (and `YOUTUBE_API_KEY`) server-side only; never send them from a
+  browser client.
 - The repo ships no keys; `.env` is git-ignored.
 - Rotate any key that has been pasted into a chat, screenshot, or commit.

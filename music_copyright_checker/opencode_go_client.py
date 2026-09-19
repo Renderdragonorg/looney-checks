@@ -58,8 +58,20 @@ class OpenCodeGoClient(OpenRouterClient):
         user_agent: Optional[str] = DEFAULT_OPENCODE_GO_USER_AGENT,
         disable_reasoning: bool = True,
         max_tokens: Optional[int] = DEFAULT_OPENCODE_GO_MAX_TOKENS,
+        search_backend: Optional[str] = None,
+        exa_api_key: Optional[str] = None,
+        exa_base_url: Optional[str] = None,
+        exa_timeout: Optional[float] = None,
     ) -> None:
-        super().__init__(api_key=api_key, base_url=base_url, timeout=timeout)
+        super().__init__(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            search_backend=search_backend,
+            exa_api_key=exa_api_key,
+            **({} if exa_base_url is None else {"exa_base_url": exa_base_url}),
+            exa_timeout=exa_timeout,
+        )
         self._session = session or uuid.uuid4().hex
         self._user_agent = user_agent
         self._disable_reasoning = disable_reasoning

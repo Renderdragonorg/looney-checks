@@ -146,6 +146,9 @@ ignores all of this.
 
 # Talk to a running `opencode serve` (opencode backend only)
 ./music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend opencode --opencode-server http://127.0.0.1:4096
+
+# Fail over to a secondary backend (repeat --fallback-ai-backend for a chain)
+./music-copyright-checker --spotify-url spotify:track:xxxx --ai-backend openrouter --fallback-ai-backend opencode-go
 ```
 
 Full flag list (`./music-copyright-checker --help`):
@@ -155,12 +158,16 @@ Full flag list (`./music-copyright-checker --help`):
 | `--spotify-url` | — | Spotify track URL, URI, or bare id (mutually exclusive with the other sources) |
 | `--youtube-url` | — | YouTube Data API v3 video URL, bare 11-char id, or search query (set `YOUTUBE_API_KEY`) |
 | `--file` | — | Path to a local audio file |
-| `--ai-backend` | `openrouter` | AI backend: `openrouter` (REST) or `opencode` (CLI agent) |
-| `--model` | `openrouter/free` | Model override for the active backend |
+| `--ai-backend` | `openrouter` | Primary AI backend: `openrouter`, `opencode-go`, `openai-compatible`, or `opencode` |
+| `--fallback-ai-backend` | — | Secondary backend tried if the primary fails (repeatable) |
+| `--model` | `openrouter/free` | Model override for the primary backend |
+| `--search-backend` | `auto` | Web search: `auto`, `server`, `exa`, or `none` |
+| `--openai-compatible-base-url` | `OPENAI_COMPAT_BASE_URL` | Base URL for the OpenAI-compatible backend |
+| `--openai-compatible-model` | `OPENAI_COMPAT_MODEL` | Model for the OpenAI-compatible backend |
 | `--opencode-server` | — | Talk to a running `opencode serve` base URL (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable name/path |
 | `--no-auto-install` | — | Do not download opencode if missing |
-| `--timeout` | `300` / `900` | AI research timeout, seconds (OpenRouter / opencode) |
+| `--timeout` | `300` / `900` | AI research timeout, seconds (REST / opencode) |
 | `--no-ai` | — | Metadata only, skip the AI research step |
 | `--cache-path` | `~/.cache/music-copyright-checker/cache.sqlite3` | SQLite cache location |
 | `--no-cache` | — | Disable metadata and research caching |
@@ -204,13 +211,17 @@ proxy/Cloudflare where request timeouts force async processing.
 | --- | --- | --- |
 | `--host` | `127.0.0.1` | Bind address |
 | `--port` | `8080` | Bind port |
-| `--ai-backend` | `openrouter` | AI backend: `openrouter` or `opencode` |
-| `--model` | `openrouter/free` | AI model override for the active backend |
+| `--ai-backend` | `openrouter` | Primary AI backend: `openrouter`, `opencode-go`, `openai-compatible`, or `opencode` |
+| `--fallback-ai-backend` | — | Secondary backend tried if the primary fails (repeatable) |
+| `--model` | `openrouter/free` | AI model override for the primary backend |
+| `--search-backend` | `auto` | Web search: `auto`, `server`, `exa`, or `none` |
+| `--openai-compatible-base-url` | `OPENAI_COMPAT_BASE_URL` | Base URL for the OpenAI-compatible backend |
+| `--openai-compatible-model` | `OPENAI_COMPAT_MODEL` | Model for the OpenAI-compatible backend |
 | `--opencode-server` | — | Use a running `opencode serve` (opencode backend) |
 | `--opencode-binary` | `opencode` | opencode executable name/path |
 | `--no-auto-install` | — | Do not download opencode if missing |
 | `--jobs` | off | Enable the async `/jobs` queue (proxy deployments) |
-| `--timeout` | `300` / `900` | Per-request AI research timeout (OpenRouter / opencode) |
+| `--timeout` | `300` / `900` | Per-request AI research timeout (REST / opencode) |
 | `--no-ai` | — | Metadata-only server (for API testing) |
 | `--cache-path` / `--no-cache` | cache on | SQLite cache control |
 

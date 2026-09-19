@@ -19,20 +19,27 @@ load_env_file()
 from .errors import (
     AIResearchError,
     AIResponseParseError,
+    AllBackendsFailedError,
+    ExaSearchError,
     FileMetadataError,
     InvalidSpotifyURLError,
     InvalidYouTubeURLError,
     MusicCheckerError,
     OpenCodeGoError,
+    OpenAICompatibleError,
     OpenRouterError,
     SpotifyLookupError,
     YouTubeAPIError,
     YouTubeLookupError,
 )
+from .exa_search import ExaSearchClient
+from .fallback_researcher import FallbackResearcher
 from .openrouter_client import OpenRouterClient
 from .openrouter_researcher import OpenRouterResearcher
 from .opencode_go_client import OpenCodeGoClient
 from .opencode_go_researcher import OpenCodeGoResearcher
+from .openai_compatible_client import OpenAICompatibleClient
+from .openai_compatible_researcher import OpenAICompatibleResearcher
 from .cache import CacheStore
 from .models import (
     Credit,
@@ -57,6 +64,10 @@ __all__ = [
     "OpenRouterResearcher",
     "OpenCodeGoClient",
     "OpenCodeGoResearcher",
+    "OpenAICompatibleClient",
+    "OpenAICompatibleResearcher",
+    "ExaSearchClient",
+    "FallbackResearcher",
     "CacheStore",
     "Credit",
     "CopyrightCheckResult",
@@ -79,6 +90,9 @@ __all__ = [
     "AIResponseParseError",
     "OpenRouterError",
     "OpenCodeGoError",
+    "OpenAICompatibleError",
+    "ExaSearchError",
+    "AllBackendsFailedError",
 ]
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"

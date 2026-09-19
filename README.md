@@ -10,7 +10,7 @@ nothing here renders anything.
 
 ```
 Spotify URL ──┐
-              ├─► normalize metadata/credits ─► JSON ─► AI research (opencode) ─► JSON result
+              ├─► normalize metadata/credits ─► JSON ─► AI research ─► JSON result
 Audio file ───┘
 ```
 
@@ -38,9 +38,13 @@ Audio file ───┘
    API (`openrouter_client.py`) with the free model router (`openrouter/free`)
    and OpenRouter's server-side `openrouter:web_search` tool for live research —
    no local agent/browser process. Set `OPENROUTER_API_KEY` to enable it.
-   `ai_backend="opencode"` still drives the bundled
-   [`opencode-harness`](docs/opencode-harness/) CLI agent as an alternative.
-   The response is parsed back into a `ResearchResult`.
+   Other backends: `opencode-go` (same REST shape), `openai-compatible` (any
+   OpenAI-compatible endpoint, using client-side
+   [Exa](https://docs.exa.ai/) web search via `EXA_API_KEY`), and `opencode`
+   (the bundled [`opencode-harness`](docs/opencode-harness/) CLI agent).
+   Multiple backends can be chained as a primary/secondary fallback
+   (`ai_fallback_backends=`). The response is parsed back into a
+   `ResearchResult`.
 
 4. **Result** — `pipeline.py`'s `Pipeline.check_spotify_url()` /
    `.check_youtube_url()` / `.check_file()` return a `CopyrightCheckResult`
@@ -83,9 +87,13 @@ which makes warm startup slow (~17s on macOS). The onedir launcher starts in
 well under a second.
 
 The default AI backend is the OpenRouter REST API, so the only thing you need
-is an OpenRouter key: export `OPENROUTER_API_KEY` (or pass `--ai-backend
-opencode` to use the `opencode` CLI agent instead, which on first run is
-downloaded via the official installer into `~/.opencode/bin`).
+is an OpenRouter key: export `OPENROUTER_API_KEY`. Other backends are
+`--ai-backend opencode-go`, `--ai-backend openai-compatible` (needs
+`OPENAI_COMPAT_API_KEY`/`OPENAI_COMPAT_MODEL` plus `EXA_API_KEY` for web
+search), or `--ai-backend opencode` (the `opencode` CLI agent, downloaded via
+the official installer into `~/.opencode/bin` on first run). Add
+`--fallback-ai-backend BACKEND` (repeatable) to fail over to a secondary
+endpoint.
 
 Checksums are published next to the archives in the release (`SHA256SUMS`).
 
@@ -132,6 +140,10 @@ from music_copyright_checker import Pipeline
 
 pipeline = Pipeline()  # OpenRouter backend, model openrouter/free (needs OPENROUTER_API_KEY)
 
+# Fail over to other endpoints if the primary fails:
+# pipeline = Pipeline(ai_backend="openrouter", ai_fallback_backends=["opencode-go", "openai-compatible"],
+#                     openai_compatible_model="gpt-4.1-mini")
+
 result = pipeline.check_spotify_url("https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6")
 print(result.to_dict())
 
@@ -161,7 +173,7 @@ python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model o
 
 ## Documentation
 
-- [AI backends](docs/ai-backends.md) — OpenRouter (default) and opencode, keys, models, `.env`.
+- [AI backends](docs/ai-backends.md) — OpenRouter, OpenCode Go, OpenAI-compatible, and opencode; Exa web search, fallback chains, keys, models, `.env`.
 - [YouTube Data API v3 source](docs/youtube-source.md) — key setup, accepted inputs, normalized fields, quota.
 - [Server API guide](docs/server-api.md) — `/check`, `/youtube/search`, `/jobs`, `/docs`, deployment.
 - [Downloadable binaries](docs/binaries.md) — prebuilt binaries, CLI flags, CI/release.
@@ -332,10 +344,16 @@ music_copyright_checker/
 ├── youtube_source.py    # YouTube Data API v3 video lookup + search + normalization
 ├── file_source.py       # local audio file tag extraction (mutagen)
 ├── prompts.py            # the licensing-research prompt template
-├── openrouter_client.py  # direct OpenRouter REST client (free router + web_search tool)
+├── openrouter_client.py  # OpenAI-compatible REST client (server tool or Exa tool loop)
 ├── openrouter_researcher.py  # OpenRouter backend (prompt -> research + parsing)
+├── opencode_go_client.py      # OpenCode Go REST backend (Cloudflare headers)
+├── opencode_go_researcher.py  # OpenCode Go backend
+├── openai_compatible_client.py      # generic OpenAI-compatible backend (Exa search)
+├── openai_compatible_researcher.py  # generic OpenAI-compatible backend
+├── exa_search.py          # Exa web search + function-tool definition
+├── fallback_researcher.py # primary/secondary AI failover chain
 ├── ai_researcher.py      # optional opencode-harness backend + response parsing
-├── pipeline.py            # Pipeline: wires sources + AI backend together
+├── pipeline.py            # Pipeline: wires sources + AI backend(s) together
 ├── bootstrap.py           # downloads/installs the opencode CLI when missing
 ├── cli.py                  # thin CLI wrapper, no UI
 ├── server.py               # JSON HTTP API around Pipeline (/jobs opt-in with --jobs)

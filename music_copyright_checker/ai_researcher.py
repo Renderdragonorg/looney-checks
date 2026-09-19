@@ -188,6 +188,10 @@ class AIResearcher:
         self._model = model
         self._timeout = timeout
 
+    @property
+    def mode(self) -> str:
+        return self._client.mode
+
     def research(self, request: LookupRequest) -> tuple[ResearchResult, Dict[str, Any]]:
         """Run the research prompt and return (parsed result, raw AI run metadata)."""
         prompt_payload = request.to_dict()

@@ -36,16 +36,33 @@ class OpenRouterResearcher:
         model: Optional[str] = DEFAULT_OPENROUTER_MODEL,
         timeout: float = DEFAULT_OPENROUTER_TIMEOUT,
         web_search: bool = True,
+        search_backend: Optional[str] = None,
+        exa_api_key: Optional[str] = None,
+        exa_base_url: Optional[str] = None,
+        exa_timeout: Optional[float] = None,
         client: Optional[OpenRouterClient] = None,
     ) -> None:
-        self._client = client or OpenRouterClient(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=timeout,
-        )
-        self._model = model or DEFAULT_OPENROUTER_MODEL
+        if client is None:
+            client_kwargs: Dict[str, Any] = {
+                "api_key": api_key,
+                "base_url": base_url,
+                "timeout": timeout,
+                "search_backend": search_backend,
+                "exa_api_key": exa_api_key,
+            }
+            if exa_base_url is not None:
+                client_kwargs["exa_base_url"] = exa_base_url
+            if exa_timeout is not None:
+                client_kwargs["exa_timeout"] = exa_timeout
+            client = OpenRouterClient(**client_kwargs)
+        self._client = client
+        self._model = model or getattr(client, "default_model", None) or DEFAULT_OPENROUTER_MODEL
         self._timeout = timeout
         self._web_search = web_search
+
+    @property
+    def mode(self) -> str:
+        return self._client.mode
 
     def research(self, request: LookupRequest) -> tuple[ResearchResult, Dict[str, Any]]:
         """Run the research prompt and return (parsed result, raw run metadata)."""

@@ -7,15 +7,15 @@ OpenCode Go endpoint with its required headers and the ``mimo-v2.5`` model.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from .openrouter_researcher import OpenRouterResearcher
 from .opencode_go_client import (
     DEFAULT_OPENCODE_GO_BASE_URL,
     DEFAULT_OPENCODE_GO_MODEL,
     DEFAULT_OPENCODE_GO_TIMEOUT,
     OpenCodeGoClient,
 )
+from .openrouter_researcher import OpenRouterResearcher
 
 
 class OpenCodeGoResearcher(OpenRouterResearcher):
@@ -31,11 +31,28 @@ class OpenCodeGoResearcher(OpenRouterResearcher):
         model: Optional[str] = DEFAULT_OPENCODE_GO_MODEL,
         timeout: float = DEFAULT_OPENCODE_GO_TIMEOUT,
         web_search: bool = True,
+        search_backend: Optional[str] = None,
+        exa_api_key: Optional[str] = None,
+        exa_base_url: Optional[str] = None,
+        exa_timeout: Optional[float] = None,
         client: Optional[OpenCodeGoClient] = None,
     ) -> None:
+        if client is None:
+            client_kwargs: Dict[str, Any] = {
+                "api_key": api_key,
+                "base_url": base_url,
+                "timeout": timeout,
+                "search_backend": search_backend,
+                "exa_api_key": exa_api_key,
+            }
+            if exa_base_url is not None:
+                client_kwargs["exa_base_url"] = exa_base_url
+            if exa_timeout is not None:
+                client_kwargs["exa_timeout"] = exa_timeout
+            client = OpenCodeGoClient(**client_kwargs)
         super().__init__(
             model=model,
             timeout=timeout,
             web_search=web_search,
-            client=client or OpenCodeGoClient(api_key=api_key, base_url=base_url, timeout=timeout),
+            client=client,
         )
