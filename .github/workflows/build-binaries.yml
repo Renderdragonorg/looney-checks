@@ -146,5 +146,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
+          # Per-release notes live in docs/changes-<tag>.md (e.g. docs/changes-v0.3.4.md).
+          body_path: docs/changes-${{ github.ref_name }}.md
           generate_release_notes: true
           fail_on_unmatched_files: false

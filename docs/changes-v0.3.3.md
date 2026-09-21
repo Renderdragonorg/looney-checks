@@ -114,4 +114,6 @@ See the updated [AI backends guide](ai-backends.md) for details.
 - Existing OpenRouter / OpenCode Go / opencode usage is unchanged; `auto` keeps
   using the server tool where available.
 - Version bumped `0.3.2 → 0.3.3` (`pyproject.toml`, `__version__`).
-- Cache keys are unchanged for single-backend setups.
+- The research cache key now covers the whole backend chain
+  (`backend:model`, joined with `|`), so a fallback result is never served as
+  the primary's. Pre-v0.3.3 research entries are re-keyed once.

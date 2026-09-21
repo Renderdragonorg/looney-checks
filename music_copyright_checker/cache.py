@@ -166,6 +166,17 @@ def _normalized(value: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().casefold())
 
 
+# TrackMetadata fields that are not stable identifiers: live counters, editable
+# descriptions/tags, CDN URLs and source-debug payloads. They change between
+# checks of the *same* recording, so including them in the research payload hash
+# made YouTube keys churn on nearly every lookup (view_count increments
+# continuously). They carry no recording identity and must not invalidate the
+# research cache. Stable identification is already handled by ``research_identity``.
+_VOLATILE_TRACK_FIELDS = frozenset(
+    {"view_count", "raw", "description", "tags", "thumbnail_url", "external_ids"}
+)
+
+
 def research_identity(request: LookupRequest, *, fallback: Optional[str] = None) -> str:
     """Prefer stable recording identifiers, with a conservative metadata fallback."""
     track = request.track
@@ -194,12 +205,22 @@ def research_cache_key(
     prompt_version: str,
     fallback_identity: Optional[str] = None,
 ) -> str:
-    """Build a key that excludes request paths but includes AI-relevant input."""
+    """Build a key that excludes request paths and volatile fields.
+
+    The key covers stable, AI-relevant input only: the recording identity and
+    prompt/model, plus the stable parts of the payload. Volatile per-fetch
+    fields (see :data:`_VOLATILE_TRACK_FIELDS`) are dropped so the same video
+    keeps hitting the cache as its view count and description change.
+    """
     payload = request.to_dict()
     payload.pop("input", None)
     file_metadata = payload.get("file_metadata")
     if isinstance(file_metadata, dict):
         file_metadata.pop("path", None)
+    track = payload.get("track")
+    if isinstance(track, dict):
+        for field in _VOLATILE_TRACK_FIELDS:
+            track.pop(field, None)
     payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
     identity = research_identity(request, fallback=fallback_identity)

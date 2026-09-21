@@ -116,6 +116,46 @@ class TestCacheStore(unittest.TestCase):
         )
         self.assertEqual(metadata_cache_key("spotify", "id"), "metadata:v1:spotify:id")
 
+    def test_research_key_ignores_volatile_youtube_fields(self):
+        def key(view_count, description, tags, thumbnail):
+            track = TrackMetadata(
+                name="Song",
+                artists=["Artist"],
+                youtube_id="9bzkp7q19f0",
+                view_count=view_count,
+                description=description,
+                tags=tags,
+                thumbnail_url=thumbnail,
+                external_ids={"a": "b"},
+                raw={"debug": True},
+            )
+            return research_cache_key(
+                LookupRequest(
+                    source="youtube",
+                    input_ref="https://youtu.be/9bzkp7q19f0",
+                    track=track,
+                    credits=TrackCredits(),
+                ),
+                model="openrouter:openrouter/free",
+                prompt_version=RESEARCH_PROMPT_VERSION,
+            )
+
+        self.assertEqual(
+            key(1000, "one description", ["a"], "https://img/1"),
+            key(1001, "another description", ["a", "b"], "https://img/2"),
+        )
+
+    def test_research_key_still_distinguishes_identity(self):
+        def key(video_id):
+            track = TrackMetadata(name="Song", artists=["Artist"], youtube_id=video_id)
+            return research_cache_key(
+                LookupRequest(source="youtube", input_ref="x", track=track, credits=TrackCredits()),
+                model="openrouter:openrouter/free",
+                prompt_version=RESEARCH_PROMPT_VERSION,
+            )
+
+        self.assertNotEqual(key("9bzkp7q19f0"), key("dQw4w9WgXcQ"))
+
 
 class TestPipelineCaching(unittest.TestCase):
     TRACK_ID = "6rqhFgbbKwnb9MLmUQDhG6"
