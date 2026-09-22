@@ -8,7 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from music_copyright_checker.errors import AIResearchError, AllBackendsFailedError
+from music_copyright_checker.errors import (
+    AIResearchError,
+    AIResponseParseError,
+    AllBackendsFailedError,
+)
 from music_copyright_checker.fallback_researcher import FallbackResearcher
 from music_copyright_checker.models import LookupRequest, ResearchResult, TrackCredits, TrackMetadata
 from music_copyright_checker.pipeline import Pipeline
@@ -35,6 +39,23 @@ class _StubResearcher:
         self.calls += 1
         if self._error is not None:
             raise self._error
+        return self._result, {"mode": self.mode, "model": "stub-model", "session": "s"}
+
+
+class _SequenceResearcher:
+    """Raises the queued errors in order, then returns the result."""
+
+    def __init__(self, label: str, *, errors=(), result=None):
+        self.provider_label = label
+        self.mode = label.lower()
+        self.calls = 0
+        self._errors = list(errors)
+        self._result = result
+
+    def research(self, request):
+        self.calls += 1
+        if self.calls <= len(self._errors):
+            raise self._errors[self.calls - 1]
         return self._result, {"mode": self.mode, "model": "stub-model", "session": "s"}
 
 
@@ -82,6 +103,70 @@ class TestFallbackResearcher(unittest.TestCase):
     def test_requires_at_least_one(self):
         with self.assertRaises(ValueError):
             FallbackResearcher([])
+
+    def test_empty_completion_retries_same_backend(self):
+        primary = _SequenceResearcher(
+            "Primary",
+            errors=[AIResearchError("OpenRouter returned an empty completion.")],
+            result=ResearchResult(status="complete", summary="ok"),
+        )
+        secondary = _StubResearcher("Secondary", result=ResearchResult(status="partial", summary="other"))
+        chain = FallbackResearcher([primary, secondary], retries_per_backend=1, retry_delay_seconds=0)
+
+        result, meta = chain.research(_request())
+
+        self.assertEqual(result.status, "complete")
+        self.assertEqual(primary.calls, 2)
+        self.assertEqual(secondary.calls, 0)
+        self.assertFalse(meta["fallback_used"])
+
+    def test_parse_error_retries_same_backend(self):
+        primary = _SequenceResearcher(
+            "Primary",
+            errors=[AIResponseParseError("Could not find a valid JSON object in the AI's response.")],
+            result=ResearchResult(status="complete", summary="ok"),
+        )
+        secondary = _StubResearcher("Secondary", result=ResearchResult(status="partial", summary="other"))
+        chain = FallbackResearcher([primary, secondary], retries_per_backend=1, retry_delay_seconds=0)
+
+        result, meta = chain.research(_request())
+
+        self.assertEqual(result.status, "complete")
+        self.assertEqual(primary.calls, 2)
+        self.assertEqual(secondary.calls, 0)
+        self.assertFalse(meta["fallback_used"])
+
+    def test_transient_exhausted_then_falls_back(self):
+        primary = _StubResearcher("Primary", error=AIResearchError("OpenRouter returned an empty completion."))
+        secondary = _StubResearcher("Secondary", result=ResearchResult(status="partial", summary="ok"))
+        chain = FallbackResearcher([primary, secondary], retries_per_backend=1, retry_delay_seconds=0)
+
+        result, meta = chain.research(_request())
+
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(primary.calls, 2)
+        self.assertEqual(secondary.calls, 1)
+        self.assertTrue(meta["fallback_used"])
+
+    def test_non_transient_is_not_retried(self):
+        primary = _StubResearcher("Primary", error=AIResearchError("bad request: invalid track"))
+        secondary = _StubResearcher("Secondary", result=ResearchResult(status="partial", summary="ok"))
+        chain = FallbackResearcher([primary, secondary], retries_per_backend=3, retry_delay_seconds=0)
+
+        chain.research(_request())
+
+        self.assertEqual(primary.calls, 1)
+        self.assertEqual(secondary.calls, 1)
+
+    def test_retries_can_be_disabled(self):
+        primary = _StubResearcher("Primary", error=AIResearchError("empty completion"))
+        secondary = _StubResearcher("Secondary", result=ResearchResult(status="partial", summary="ok"))
+        chain = FallbackResearcher([primary, secondary], retries_per_backend=0, retry_delay_seconds=0)
+
+        chain.research(_request())
+
+        self.assertEqual(primary.calls, 1)
+        self.assertEqual(secondary.calls, 1)
 
 
 class TestPipelineFallback(unittest.TestCase):
