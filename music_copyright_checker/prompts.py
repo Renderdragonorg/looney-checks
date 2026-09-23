@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 RESULT_SCHEMA_HINT = """{
   "status": "complete | partial | not_found",
-  "summary": "max 300 characters; concise final finding",
+  "summary": "max 600 characters; concise final finding",
   "matches": [
     {
       "source_name": "source name",
@@ -47,7 +47,7 @@ RESULT_SCHEMA_HINT = """{
 }"""
 
 # Bump this whenever the research instructions or output policy changes.
-RESEARCH_PROMPT_VERSION = "2"
+RESEARCH_PROMPT_VERSION = "3"
 
 
 def build_research_prompt(request_payload: Dict[str, Any]) -> str:
@@ -89,7 +89,7 @@ Research task:
 Output rules:
 - Return ONLY one valid JSON object. No prose, markdown fences, or trailing text.
 - Use the exact keys below; do not add keys.
-- Keep summary under 300 characters, notes/supports under 240 characters, and warnings to 3.
+- Keep summary under 600 characters, notes/supports under 240 characters, and warnings to 3.
 - Keep usage caveats short and practical; do not provide legal advice or long explanations.
 - Return at most 5 matches and 10 sources.
 - Use [] for no results and null for unknown scalar values.

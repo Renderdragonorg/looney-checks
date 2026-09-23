@@ -200,6 +200,22 @@ class TestParseResearchResponse(unittest.TestCase):
         self.assertEqual(result.warnings, ["first warning"])
         self.assertIsNone(result.usage_assessment.sync_license_required)
 
+    def test_long_summary_truncates_on_word_boundary(self):
+        result = parse_research_response(
+            json.dumps({"status": "complete", "summary": "word " * 200, "matches": [], "sources": []})
+        )
+        self.assertLessEqual(len(result.summary), 600)
+        self.assertTrue(result.summary.endswith("\u2026"))
+        clipped = result.summary[:-1]
+        self.assertTrue(clipped.endswith("word"))
+        self.assertTrue(all(word == "word" for word in clipped.split()))
+
+    def test_short_summary_is_not_modified(self):
+        result = parse_research_response(
+            json.dumps({"status": "complete", "summary": "A short finding.", "matches": [], "sources": []})
+        )
+        self.assertEqual(result.summary, "A short finding.")
+
     def test_json_in_code_fence(self):
         payload = {"status": "not_found", "summary": "ok", "matches": [], "sources": [], "official_licensing_contacts": [], "warnings": []}
         text = f"Here you go:\n```json\n{json.dumps(payload)}\n```\nHope that helps!"

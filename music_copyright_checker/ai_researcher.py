@@ -23,11 +23,21 @@ DEFAULT_OPENCODE_MODEL = "opencode-go/mimo-v2.5"
 DEFAULT_OPENCODE_TIMEOUT = 900.0
 
 
+def _clip(value: str, limit: int) -> str:
+    """Trim to ``limit`` characters without splitting a word, adding an ellipsis."""
+    if len(value) <= limit:
+        return value
+    clipped = value[: max(0, limit - 1)].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    return f"{clipped}\u2026"
+
+
 def _text(value: Any, *, default: Optional[str] = None, limit: Optional[int] = None) -> Optional[str]:
     if not isinstance(value, str):
         return default
     value = " ".join(value.split())
-    return value[:limit] if limit else value
+    return _clip(value, limit) if limit else value
 
 
 def _text_list(value: Any, *, limit: int = 3, item_limit: int = 240) -> list[str]:
@@ -138,7 +148,7 @@ def parse_research_response(text: str) -> ResearchResult:
 
     return ResearchResult(
         status=status,
-        summary=_text(data.get("summary"), default="", limit=300) or "",
+        summary=_text(data.get("summary"), default="", limit=600) or "",
         matches=matches,
         sources=sources[:10],
         usage_assessment=UsageAssessment(
