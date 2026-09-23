@@ -157,6 +157,7 @@ def parse_research_response(text: str) -> ResearchResult:
             reality_tv_verdict=_text(usage.get("reality_tv_verdict"), default="unknown") or "unknown",
             sync_license_required=_optional_bool(usage.get("sync_license_required")),
             master_license_required=_optional_bool(usage.get("master_license_required")),
+            creator_declared_license=_text(usage.get("creator_declared_license"), limit=300),
             platform_exception=_text(usage.get("platform_exception"), limit=300),
             caveats=_text_list(usage.get("caveats"), limit=5),
         ),

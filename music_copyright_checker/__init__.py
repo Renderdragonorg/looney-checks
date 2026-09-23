@@ -43,6 +43,7 @@ from .openai_compatible_researcher import OpenAICompatibleResearcher
 from .cache import CacheStore
 from .models import (
     Credit,
+    Comment,
     CopyrightCheckResult,
     FileMetadata,
     LicenseMatch,
@@ -70,6 +71,7 @@ __all__ = [
     "FallbackResearcher",
     "CacheStore",
     "Credit",
+    "Comment",
     "CopyrightCheckResult",
     "FileMetadata",
     "LicenseMatch",
@@ -95,4 +97,4 @@ __all__ = [
     "AllBackendsFailedError",
 ]
 
-__version__ = "0.3.6"
+__version__ = "0.3.7"

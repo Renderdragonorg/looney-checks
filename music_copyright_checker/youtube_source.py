@@ -30,13 +30,17 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .errors import InvalidYouTubeURLError, YouTubeAPIError, YouTubeLookupError
-from .models import Credit, TrackCredits, TrackMetadata
+from .models import Comment, Credit, TrackCredits, TrackMetadata
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_API_KEY_ENV = "YOUTUBE_API_KEY"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 YOUTUBE_MUSIC_CATEGORY_ID = "10"
-MAX_DESCRIPTION_CHARS = 2000
+MAX_DESCRIPTION_CHARS = 4000
+MAX_COMMENT_CHARS = 600
+MAX_COMMENTS = 10
+DEFAULT_COMMENT_RESULTS = 20
+MAX_STATEMENT_CHARS = 400
 MAX_NETWORK_ATTEMPTS = 3
 DEFAULT_SEARCH_RESULTS = 5
 MAX_SEARCH_RESULTS = 5
@@ -47,6 +51,14 @@ _DURATION_RE = re.compile(
     r"(?:(?P<seconds>\d+(?:\.\d+)?)S)?)?$"
 )
 _LABEL_RE = re.compile(r"Provided to YouTube by\s+(?P<label>[^\r\n]+)", re.IGNORECASE)
+# Phrases that signal a creator/rights-holder usage licence rather than a
+# platform mechanism. Kept deliberately broad; the AI corroborates the match.
+_LICENSE_STATEMENT_RE = re.compile(
+    r"royalt(?:y|ies)[\s-]?free|free\s+to\s+use|free\s+for\s+use|free\s+to\s+(?:stream|monetize|reuse|use)|"
+    r"copyright[\s-]?free|no\s+copyright|creative\s+commons|cc[\s-]?by|public\s+domain|"
+    r"use\s+in\s+your\s+(?:videos?|streams?|content)|for\s+credited\s+(?:cover|remix)",
+    re.IGNORECASE,
+)
 
 _YOUTUBE_CATEGORIES = {
     "1": "Film & Animation",
@@ -314,6 +326,101 @@ def label_from_description(description: Optional[str]) -> Optional[str]:
     return label or None
 
 
+def _int_or_none(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_comments(
+    payload: Dict[str, Any],
+    *,
+    channel_id: Optional[str] = None,
+    max_comments: int = MAX_COMMENTS,
+) -> List[Comment]:
+    """Turn a ``commentThreads.list`` response into :class:`Comment` objects.
+
+    ``order=relevance`` returns the uploader's pinned comment first, which is
+    where usage licences are usually declared. Comments by the uploader's own
+    channel are flagged with ``is_uploader``.
+    """
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return []
+    comments: List[Comment] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        thread = item.get("snippet")
+        if not isinstance(thread, dict):
+            continue
+        top = thread.get("topLevelComment")
+        snippet = top.get("snippet") if isinstance(top, dict) else None
+        if not isinstance(snippet, dict):
+            continue
+        author_channel = snippet.get("authorChannelId")
+        author_channel_id = author_channel.get("value") if isinstance(author_channel, dict) else None
+        text = snippet.get("textDisplay") or snippet.get("textOriginal")
+        if isinstance(text, str):
+            text = re.sub(r"\s+", " ", text).strip()[:MAX_COMMENT_CHARS] or None
+        else:
+            text = None
+        comments.append(
+            Comment(
+                author=snippet.get("authorDisplayName"),
+                author_channel_id=author_channel_id if isinstance(author_channel_id, str) else None,
+                text=text,
+                like_count=_int_or_none(snippet.get("likeCount")),
+                published_at=snippet.get("publishedAt"),
+                is_uploader=bool(channel_id and author_channel_id == channel_id),
+            )
+        )
+        if len(comments) >= max_comments:
+            break
+    return comments
+
+
+def license_statements_from_text(text: Optional[str]) -> List[str]:
+    """Return lines/sentences that declare a usage licence or free-use term."""
+    if not text:
+        return []
+    statements: List[str] = []
+    for raw_line in re.split(r"[\r\n]+", text):
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if line and _LICENSE_STATEMENT_RE.search(line):
+            statements.append(line[:MAX_STATEMENT_CHARS])
+    return statements
+
+
+def collect_license_statements(
+    description: Optional[str],
+    comments: Optional[List[Comment]] = None,
+) -> List[str]:
+    """Gather creator-declared licence statements from the description + comments.
+
+    De-duplicated in order of appearance (description first, then the
+    uploader's comments, then other comments) and capped so the AI payload
+    stays small.
+    """
+    statements: List[str] = []
+    seen: set = set()
+
+    def add(candidate: str) -> None:
+        key = candidate.casefold()
+        if key not in seen:
+            seen.add(key)
+            statements.append(candidate)
+
+    for statement in license_statements_from_text(description):
+        add(statement)
+    ordered = sorted(comments or [], key=lambda c: not c.is_uploader)
+    for comment in ordered:
+        for statement in license_statements_from_text(comment.text):
+            add(statement)
+    return statements[:MAX_COMMENTS]
+
+
 def build_youtube_credits(metadata: TrackMetadata) -> TrackCredits:
     """Best-effort credits from the only signals YouTube exposes publicly."""
     performers: List[Credit] = []
@@ -405,6 +512,36 @@ class YouTubeSource:
             raise YouTubeLookupError(f"No YouTube video found for query {query!r}.")
         return str(results[0]["video_id"])
 
+    def fetch_comments(
+        self,
+        video_id: str,
+        *,
+        channel_id: Optional[str] = None,
+        limit: int = DEFAULT_COMMENT_RESULTS,
+    ) -> List[Comment]:
+        """Best-effort fetch of top/pinned comments; never fails a video lookup.
+
+        Comments can be disabled, the video may have none, or the API may error
+        (quota, etc.). Any of those just yields ``[]`` so the licensing research
+        still proceeds with the metadata we already have.
+        """
+        try:
+            payload = _request_json(
+                "commentThreads",
+                {
+                    "part": "snippet",
+                    "videoId": video_id,
+                    "order": "relevance",
+                    "maxResults": max(1, min(int(limit), 100)),
+                    "textFormat": "plainText",
+                    "key": resolve_api_key(self._api_key),
+                },
+                self._timeout,
+            )
+        except (YouTubeAPIError, YouTubeLookupError):
+            return []
+        return normalize_comments(payload, channel_id=channel_id)
+
     def fetch_video(self, video_id: str) -> tuple[TrackMetadata, TrackCredits]:
         """Fetch and normalize everything available for a single video id."""
         payload = _request_json(
@@ -427,6 +564,10 @@ class YouTubeSource:
                 f"Unexpected response type from the YouTube Data API for video {video_id!r}: {type(raw)!r}"
             )
         metadata = normalize_video_info(raw, video_id)
+        metadata.top_comments = self.fetch_comments(video_id, channel_id=metadata.channel_id)
+        metadata.license_statements = collect_license_statements(
+            metadata.description, metadata.top_comments
+        )
         return metadata, build_youtube_credits(metadata)
 
     def fetch(self, url_or_id_or_query: str) -> tuple[TrackMetadata, TrackCredits]:

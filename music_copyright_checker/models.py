@@ -52,6 +52,26 @@ class TrackCredits:
 
 
 @dataclass
+class Comment:
+    """One public comment on a source video (currently only YouTube).
+
+    The uploader's pinned/top comment is the place artists most often declare a
+    usage licence ("royalty free", "free to use with credit"), so it is kept as
+    evidence for the AI research step rather than discarded.
+    """
+
+    author: Optional[str] = None
+    author_channel_id: Optional[str] = None
+    text: Optional[str] = None
+    like_count: Optional[int] = None
+    published_at: Optional[str] = None
+    is_uploader: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return _asdict(self)
+
+
+@dataclass
 class TrackMetadata:
     """Normalized track info, regardless of whether it came from Spotify or a local file."""
 
@@ -79,6 +99,10 @@ class TrackMetadata:
     published_at: Optional[str] = None
     view_count: Optional[int] = None
     thumbnail_url: Optional[str] = None
+    # Public comments (top/pinned first) and any licence/usage statements the
+    # uploader or rights holder made in the description or comments.
+    top_comments: List[Comment] = field(default_factory=list)
+    license_statements: List[str] = field(default_factory=list)
     external_ids: Dict[str, str] = field(default_factory=dict)
     raw: Optional[Dict[str, Any]] = None  # optional source payload for debugging / re-parsing
 
@@ -169,6 +193,7 @@ class UsageAssessment:
     reality_tv_verdict: str = "unknown"
     sync_license_required: Optional[bool] = None
     master_license_required: Optional[bool] = None
+    creator_declared_license: Optional[str] = None
     platform_exception: Optional[str] = None
     caveats: List[str] = field(default_factory=list)
 
@@ -234,9 +259,32 @@ def track_metadata_from_dict(data: Dict[str, Any]) -> TrackMetadata:
         published_at=data.get("published_at"),
         view_count=data.get("view_count"),
         thumbnail_url=data.get("thumbnail_url"),
+        top_comments=comment_list_from_dict(data.get("top_comments")),
+        license_statements=[str(s) for s in (data.get("license_statements") or []) if isinstance(s, str)],
         external_ids=dict(data.get("external_ids") or {}),
         raw=None,
     )
+
+
+def comment_list_from_dict(data: Any) -> List[Comment]:
+    """Restore cached comments, tolerating missing/legacy fields."""
+    if not isinstance(data, list):
+        return []
+    comments: List[Comment] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        comments.append(
+            Comment(
+                author=item.get("author"),
+                author_channel_id=item.get("author_channel_id"),
+                text=item.get("text"),
+                like_count=item.get("like_count"),
+                published_at=item.get("published_at"),
+                is_uploader=bool(item.get("is_uploader")),
+            )
+        )
+    return comments
 
 
 def track_credits_from_dict(data: Dict[str, Any]) -> TrackCredits:
@@ -288,6 +336,7 @@ def research_result_from_dict(data: Dict[str, Any]) -> ResearchResult:
         reality_tv_verdict=usage_data.get("reality_tv_verdict", "unknown"),
         sync_license_required=usage_data.get("sync_license_required"),
         master_license_required=usage_data.get("master_license_required"),
+        creator_declared_license=usage_data.get("creator_declared_license"),
         platform_exception=usage_data.get("platform_exception"),
         caveats=list(usage_data.get("caveats") or []),
     )

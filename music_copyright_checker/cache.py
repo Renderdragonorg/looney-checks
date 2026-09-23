@@ -173,7 +173,7 @@ def _normalized(value: Optional[str]) -> str:
 # continuously). They carry no recording identity and must not invalidate the
 # research cache. Stable identification is already handled by ``research_identity``.
 _VOLATILE_TRACK_FIELDS = frozenset(
-    {"view_count", "raw", "description", "tags", "thumbnail_url", "external_ids"}
+    {"view_count", "raw", "description", "tags", "thumbnail_url", "top_comments", "external_ids"}
 )
 
 

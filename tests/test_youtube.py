@@ -24,18 +24,24 @@ from music_copyright_checker.errors import (
     YouTubeLookupError,
 )
 from music_copyright_checker.models import (
+    Comment,
     Credit,
     LookupRequest,
     ResearchResult,
     TrackCredits,
     TrackMetadata,
+    track_metadata_from_dict,
 )
 from music_copyright_checker.pipeline import Pipeline
+from music_copyright_checker.prompts import build_research_prompt
 from music_copyright_checker.youtube_source import (
     YouTubeSource,
     build_youtube_credits,
+    collect_license_statements,
     iso8601_duration_to_ms,
     label_from_description,
+    license_statements_from_text,
+    normalize_comments,
     normalize_video_info,
     parse_video_id,
     resolve_api_key,
@@ -149,8 +155,8 @@ class TestNormalizeVideoInfo(unittest.TestCase):
         self.assertEqual(normalize_video_info(raw, "abc12345678").category, "Entertainment")
 
     def test_description_is_truncated(self):
-        raw = {"snippet": {"description": "x" * 5000}}
-        self.assertEqual(len(normalize_video_info(raw, "abc12345678").description), 2000)
+        raw = {"snippet": {"description": "x" * 6000}}
+        self.assertEqual(len(normalize_video_info(raw, "abc12345678").description), 4000)
 
 
 class TestCredits(unittest.TestCase):
@@ -167,6 +173,102 @@ class TestCredits(unittest.TestCase):
         self.assertTrue(credits.available)
         self.assertEqual(credits.performers, [Credit(name="Rick Astley", role="Uploader")])
         self.assertEqual(credits.source_label, "Sony Music")
+
+
+class TestCreatorLicenseStatements(unittest.TestCase):
+    PINNED = (
+        "AS ALWAYS THIS ALBUM IS ROYALTY FREE TO USE IN YOUR VIDEOS, REACTIONS, OR STREAMS. "
+        "CREDIT APPRECIATED!!"
+    )
+
+    def test_normalize_comments_flags_uploader(self):
+        payload = {
+            "items": [
+                {
+                    "snippet": {
+                        "topLevelComment": {
+                            "snippet": {
+                                "authorDisplayName": "Alohaii",
+                                "authorChannelId": {"value": "UC_owner"},
+                                "textDisplay": self.PINNED,
+                                "likeCount": "527",
+                                "publishedAt": "2025-11-11T00:00:00Z",
+                            }
+                        }
+                    }
+                },
+                {
+                    "snippet": {
+                        "topLevelComment": {
+                            "snippet": {
+                                "authorDisplayName": "Fan",
+                                "authorChannelId": {"value": "UC_fan"},
+                                "textDisplay": "great song",
+                            }
+                        }
+                    }
+                },
+            ]
+        }
+        comments = normalize_comments(payload, channel_id="UC_owner")
+        self.assertEqual(len(comments), 2)
+        self.assertTrue(comments[0].is_uploader)
+        self.assertEqual(comments[0].like_count, 527)
+        self.assertEqual(comments[0].text, self.PINNED)
+        self.assertFalse(comments[1].is_uploader)
+
+    def test_normalize_comments_tolerates_missing_fields(self):
+        payload = {"items": [{"snippet": {}}, {"bad": True}, "nope"]}
+        self.assertEqual(normalize_comments(payload), [])
+
+    def test_license_statements_from_text(self):
+        text = "Support me on Bandcamp.\nTHIS ALBUM IS ROYALTY FREE TO USE IN YOUR VIDEOS.\nThanks!"
+        self.assertEqual(
+            license_statements_from_text(text),
+            ["THIS ALBUM IS ROYALTY FREE TO USE IN YOUR VIDEOS."],
+        )
+        self.assertEqual(license_statements_from_text("no licence info here"), [])
+
+    def test_collect_license_statements_prefers_uploader_and_dedupes(self):
+        uploader = Comment(author="Alohaii", text=self.PINNED, is_uploader=True)
+        fan = Comment(author="Fan", text=self.PINNED, is_uploader=False)
+        statements = collect_license_statements("Provided to YouTube by Patchwork", [fan, uploader])
+        self.assertEqual(statements, [self.PINNED])
+
+    def test_prompt_surfaces_creator_declarations(self):
+        prompt = build_research_prompt(
+            {
+                "source": "youtube",
+                "track": {"name": "Luxury", "license_statements": [self.PINNED]},
+            }
+        )
+        self.assertIn(self.PINNED, prompt)
+        self.assertIn("creator_declared_license", prompt)
+
+    def test_prompt_always_includes_description(self):
+        prompt = build_research_prompt(
+            {
+                "source": "youtube",
+                "track": {
+                    "name": "Luxury",
+                    "description": "3RD SINGLE FOR MY UPCOMING ALBUM PATCHWORK",
+                },
+            }
+        )
+        self.assertIn("Description:", prompt)
+        self.assertIn("3RD SINGLE FOR MY UPCOMING ALBUM PATCHWORK", prompt)
+
+    def test_metadata_round_trips_comments_and_statements(self):
+        meta = TrackMetadata(
+            name="Luxury",
+            top_comments=[Comment(author="Alohaii", text=self.PINNED, is_uploader=True, like_count=527)],
+            license_statements=[self.PINNED],
+        )
+        restored = track_metadata_from_dict(meta.to_dict())
+        self.assertEqual(restored.license_statements, [self.PINNED])
+        self.assertEqual(restored.top_comments[0].author, "Alohaii")
+        self.assertTrue(restored.top_comments[0].is_uploader)
+        self.assertEqual(restored.top_comments[0].like_count, 527)
 
 
 class _FakeResponse:
@@ -189,15 +291,51 @@ class TestYouTubeSource(unittest.TestCase):
 
     @patch("music_copyright_checker.youtube_source._request_json")
     def test_fetch_video_requests_videos_endpoint(self, request_json):
-        request_json.return_value = {"items": [TestNormalizeVideoInfo.RAW]}
+        request_json.side_effect = [
+            {"items": [TestNormalizeVideoInfo.RAW]},
+            {"items": []},
+        ]
         meta, credits = self.source.fetch_video("dQw4w9WgXcQ")
         self.assertEqual(meta.youtube_id, "dQw4w9WgXcQ")
         self.assertTrue(credits.available)
-        path, params, _timeout = request_json.call_args.args
+        path, params, _timeout = request_json.call_args_list[0].args
         self.assertEqual(path, "videos")
         self.assertEqual(params["id"], "dQw4w9WgXcQ")
         self.assertEqual(params["key"], "test-key")
         self.assertIn("snippet", params["part"])
+
+    @patch("music_copyright_checker.youtube_source._request_json")
+    def test_fetch_video_collects_creator_license_statements(self, request_json):
+        pinned = "THIS ALBUM IS ROYALTY FREE TO USE IN YOUR VIDEOS, REACTIONS, OR STREAMS."
+        request_json.side_effect = [
+            {"items": [TestNormalizeVideoInfo.RAW]},
+            {
+                "items": [
+                    {
+                        "snippet": {
+                            "topLevelComment": {
+                                "snippet": {
+                                    "authorDisplayName": "Rick Astley",
+                                    "authorChannelId": {"value": "UCuAXFkgsw1L7xaCfnd5JJOw"},
+                                    "textDisplay": pinned,
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
+        ]
+        meta, _credits = self.source.fetch_video("dQw4w9WgXcQ")
+        self.assertEqual(meta.license_statements, [pinned])
+        self.assertTrue(meta.top_comments[0].is_uploader)
+        _path, params, _timeout = request_json.call_args_list[1].args
+        self.assertEqual(_path, "commentThreads")
+        self.assertEqual(params["videoId"], "dQw4w9WgXcQ")
+
+    @patch("music_copyright_checker.youtube_source._request_json")
+    def test_fetch_comments_returns_empty_on_api_error(self, request_json):
+        request_json.side_effect = YouTubeAPIError("comments disabled")
+        self.assertEqual(self.source.fetch_comments("dQw4w9WgXcQ"), [])
 
     @patch("music_copyright_checker.youtube_source._request_json")
     def test_fetch_video_missing_raises(self, request_json):

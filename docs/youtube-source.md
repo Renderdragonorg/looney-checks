@@ -29,6 +29,7 @@ The API has a free daily quota (default 10,000 units). Cost per call:
 | Call | Units | Used for |
 | --- | --- | --- |
 | `videos.list` | 1 | Resolving a known video id/URL to metadata |
+| `commentThreads.list` | 1 | Best-effort fetch of top/pinned comments (creator licence statements) |
 | `search.list` | 100 | Resolving a free-text query to a video id |
 
 Because search costs 100× a lookup, prefer pasting a URL or video id when you
@@ -96,7 +97,7 @@ passed back to the normal check.
 | `name` | `snippet.title` |
 | `artists` | `[snippet.channelTitle]` |
 | `channel` / `channel_id` / `channel_url` | `snippet.channelTitle` / `channelId` |
-| `description` | `snippet.description` (truncated to 2000 chars) |
+| `description` | `snippet.description` (truncated to 4000 chars) |
 | `tags` | `snippet.tags` |
 | `category` | `topicDetails` "Music", else mapped `snippet.categoryId` |
 | `release_date` | `snippet.publishedAt` |
@@ -105,7 +106,28 @@ passed back to the normal check.
 | `published_at` | `snippet.publishedAt` |
 | `view_count` | `statistics.viewCount` |
 | `thumbnail_url` | best `snippet.thumbnails` size |
+| `top_comments` | top/pinned `commentThreads.list` comments (`author`, `text`, `like_count`, `published_at`, `is_uploader`) |
+| `license_statements` | usage-licence phrases found in the description or comments (e.g. "royalty free", "free to use with credit") |
 | `youtube_id` / `youtube_url` | requested video id |
+
+### Creator licence statements
+
+`fetch_video()` makes one extra best-effort `commentThreads.list` call
+(`order=relevance`, which returns the uploader's pinned comment first) and keeps
+up to 10 comments. `collect_license_statements()` scans the description and
+those comments for free-use/licence phrases ("royalty free", "free to use",
+"creative commons", "CC BY", "for credited cover/remix", ...) and stores them in
+`license_statements`.
+
+This matters because artists frequently declare a usage licence in a pinned
+comment or the description rather than in any rights database. The AI research
+prompt always includes the full video description and the detected
+`license_statements`, and is told to verify and weigh them, so a
+creator-declared royalty-free track is no longer reflexively flagged as
+clearance-required just because `licensed_content` is `true`.
+
+The comment fetch never fails a lookup: if comments are disabled, empty, or the
+API errors, `top_comments`/`license_statements` are simply empty.
 
 ### Credits
 

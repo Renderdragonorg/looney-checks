@@ -323,6 +323,7 @@ Only public HTTP/HTTPS URLs are accepted, with a 100 MB download limit.
       "reality_tv_verdict": "clearance_required",
       "sync_license_required": true,
       "master_license_required": true,
+      "creator_declared_license": "royalty-free, credit appreciated",
       "platform_exception": "A platform claim or creator-library license is not general permission.",
       "caveats": ["Clear both composition and master rights."]
     },
@@ -383,7 +384,11 @@ docs/opencode-harness/         # reference docs for the vendored opencode-harnes
 - A track being playable, unclaimed, monetized through Content ID, or available
   in a creator music library does not automatically grant general video or
   reality-TV permission. The usage assessment distinguishes those platform
-  mechanisms from composition/sync and master recording clearance.
+  mechanisms from composition/sync and master recording clearance. Conversely,
+  `licensed_content: true` does not mean reuse is restricted: when the uploader
+  or rights holder declares free-use terms (e.g. in a pinned comment or the
+  description), the YouTube source surfaces those statements and the research
+  reflects them instead of defaulting to `clearance_required`.
 - The AI is explicitly instructed to only report what it actually found
   while searching, and to flag disagreement between sources in `warnings`
   rather than silently picking one. Treat `matches[].confidence` as a signal,

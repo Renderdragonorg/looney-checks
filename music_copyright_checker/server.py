@@ -248,6 +248,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                         "reality_tv_verdict": "reality-TV clearance guidance",
                         "sync_license_required": "composition clearance flag",
                         "master_license_required": "recording clearance flag",
+                        "creator_declared_license": "creator/rights-holder stated terms or null",
                         "platform_exception": "platform-library and Content ID distinction",
                         "caveats": "short practical caveats",
                     },
