@@ -229,6 +229,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                     {"spotify_url": "https://open.spotify.com/track/..."},
                     {"youtube_url": "https://www.youtube.com/watch?v=..."},
                     {"youtube_url": "Artist - Song name (free-text search query)"},
+                    {"renderdragon_url": "https://renderdragon.org/api/music-link?name=...&url=..."},
                     {"file": "/absolute/path/to/song.mp3"},
                     {"file_url": "https://cdn.example.com/song.mp3"},
                     {"multipart_file": "file=@song.mp3"},
@@ -320,6 +321,7 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
         "curl_youtube": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"}'",
         "curl_youtube_search": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"youtube_url\":\"Rick Astley - Never Gonna Give You Up\"}'",
         "curl_youtube_search_pick": "curl -X POST http://127.0.0.1:8080/youtube/search -H 'Content-Type: application/json' -d '{\"query\":\"Rick Astley - Never Gonna Give You Up\",\"limit\":5}'",
+        "curl_renderdragon": "curl -X POST http://127.0.0.1:8080/check -H 'Content-Type: application/json' -d '{\"renderdragon_url\":\"https://renderdragon.org/api/music-link?name=Song&url=<raw-github-url>&id=12\"}'",
         "curl_upload": "curl -X POST http://127.0.0.1:8080/check -F 'file=@/path/to/song.mp3'",
         "javascript": "fetch('http://127.0.0.1:8080/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({spotify_url: url})}).then(r => r.json())",
     }
@@ -386,6 +388,11 @@ def _docs_payload(model: Optional[str], *, jobs_enabled: bool = False) -> Dict[s
                 "content_type": "application/json",
                 "body": {"query": "Rick Astley - Never Gonna Give You Up", "limit": DEFAULT_SEARCH_RESULTS},
                 "note": "POST /youtube/search returns up to 5 candidates with thumbnails so the controller can pick one, then POST the chosen video_id/url to /check.",
+            },
+            "renderdragon_json": {
+                "content_type": "application/json",
+                "body": {"renderdragon_url": "https://renderdragon.org/api/music-link?name=...&url=..."},
+                "note": "Resolves a renderdragon.org music link (Accept: application/json) into track metadata + credits. The link's 'url' must be an allowlisted raw.githubusercontent.com file.",
             },
             "server_file_json": {
                 "content_type": "application/json",
@@ -652,14 +659,15 @@ class RequestHandler(BaseHTTPRequestHandler):
 
                 spotify_url = payload.get("spotify_url")
                 youtube_url = payload.get("youtube_url")
+                renderdragon_url = payload.get("renderdragon_url")
                 file_path = payload.get("file")
                 file_url = payload.get("file_url")
                 refresh = payload.get("refresh", False)
-                values = (spotify_url, youtube_url, file_path, file_url)
+                values = (spotify_url, youtube_url, renderdragon_url, file_path, file_url)
                 if sum(bool(value) for value in values) != 1 or not all(
                     value is None or isinstance(value, str) for value in values
                 ):
-                    self._send_json(400, {"error": "Provide exactly one string: 'spotify_url', 'youtube_url', 'file', or 'file_url'."})
+                    self._send_json(400, {"error": "Provide exactly one string: 'spotify_url', 'youtube_url', 'renderdragon_url', 'file', or 'file_url'."})
                     return
                 if not isinstance(refresh, bool):
                     self._send_json(400, {"error": "'refresh' must be a boolean when provided."})
@@ -681,6 +689,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                     else:
                         work = lambda progress: self.server.pipeline.check_youtube_url(
                             youtube_url, progress=progress
+                        ).to_dict()
+                elif renderdragon_url:
+                    if refresh:
+                        work = lambda progress: self.server.pipeline.check_renderdragon_url(
+                            renderdragon_url, progress=progress, refresh=True
+                        ).to_dict()
+                    else:
+                        work = lambda progress: self.server.pipeline.check_renderdragon_url(
+                            renderdragon_url, progress=progress
                         ).to_dict()
                 elif file_path:
                     if refresh:

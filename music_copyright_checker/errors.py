@@ -31,6 +31,18 @@ class FileMetadataError(MusicCheckerError):
     """Raised when a local audio file's metadata cannot be read."""
 
 
+class InvalidRenderDragonLinkError(MusicCheckerError):
+    """Raised when a value is not a valid RenderDragon music-link URL."""
+
+
+class RenderDragonLookupError(MusicCheckerError):
+    """Raised when the RenderDragon music-link endpoint cannot verify a track."""
+
+
+class RenderDragonAPIError(RenderDragonLookupError):
+    """Raised when the RenderDragon music-link endpoint returns an error response."""
+
+
 class AIResearchError(MusicCheckerError):
     """Raised when the AI research step (opencode-harness or OpenRouter) fails outright."""
 

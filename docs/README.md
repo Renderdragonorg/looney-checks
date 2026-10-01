@@ -15,6 +15,7 @@ Guides for the music copyright checker backend.
 
 | Guide | What it covers |
 | --- | --- |
+| [v0.4.0 release notes](changes-v0.4.0.md) | RenderDragon music-link source; `audio_url`/`renderdragon_id` fields |
 | [v0.3.7 release notes](changes-v0.3.7.md) | Creator-declared licences from video comments; `free_to_use` verdicts |
 | [v0.3.3 release notes](changes-v0.3.3.md) | Exa web search, OpenAI-compatible backend, AI fallback chains, OpenCode Go |
 | [v0.3.1 release notes](changes-v0.3.1.md) | onedir archives for fast startup, asset list, upgrading from 0.3.0 |
@@ -47,7 +48,7 @@ music-copyright-checker-server --host 127.0.0.1 --port 8080
 Request flow:
 
 ```text
-source (Spotify / YouTube / file)
+source (Spotify / YouTube / RenderDragon / file)
   -> normalized TrackMetadata + TrackCredits
   -> AI licensing research (OpenRouter by default)
   -> structured JSON (request + research + ai_meta)

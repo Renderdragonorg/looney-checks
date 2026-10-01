@@ -22,12 +22,15 @@ from .errors import (
     AllBackendsFailedError,
     ExaSearchError,
     FileMetadataError,
+    InvalidRenderDragonLinkError,
     InvalidSpotifyURLError,
     InvalidYouTubeURLError,
     MusicCheckerError,
     OpenCodeGoError,
     OpenAICompatibleError,
     OpenRouterError,
+    RenderDragonAPIError,
+    RenderDragonLookupError,
     SpotifyLookupError,
     YouTubeAPIError,
     YouTubeLookupError,
@@ -55,12 +58,26 @@ from .models import (
     UsageAssessment,
 )
 from .pipeline import Pipeline
+from .renderdragon_source import (
+    RenderDragonSource,
+    build_music_link,
+    is_allowlisted_source,
+    parse_music_link,
+    renderdragon_identity,
+    to_raw_github_url,
+)
 from .youtube_source import YouTubeSource, parse_video_id
 
 __all__ = [
     "Pipeline",
     "YouTubeSource",
     "parse_video_id",
+    "RenderDragonSource",
+    "build_music_link",
+    "parse_music_link",
+    "renderdragon_identity",
+    "is_allowlisted_source",
+    "to_raw_github_url",
     "OpenRouterClient",
     "OpenRouterResearcher",
     "OpenCodeGoClient",
@@ -87,6 +104,9 @@ __all__ = [
     "InvalidYouTubeURLError",
     "YouTubeLookupError",
     "YouTubeAPIError",
+    "InvalidRenderDragonLinkError",
+    "RenderDragonLookupError",
+    "RenderDragonAPIError",
     "FileMetadataError",
     "AIResearchError",
     "AIResponseParseError",
@@ -97,4 +117,4 @@ __all__ = [
     "AllBackendsFailedError",
 ]
 
-__version__ = "0.3.7"
+__version__ = "0.4.0"

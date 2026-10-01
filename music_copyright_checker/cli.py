@@ -32,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
         "--youtube-url",
         help="A YouTube video URL, bare 11-character video id, or a free-text search query.",
     )
+    source.add_argument(
+        "--renderdragon-url",
+        help="A renderdragon.org/api/music-link URL to resolve, then research.",
+    )
     source.add_argument("--file", help="Path to a local audio file.")
 
     parser.add_argument(
@@ -135,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             result = pipeline.check_spotify_url(args.spotify_url, refresh=args.refresh)
         elif args.youtube_url:
             result = pipeline.check_youtube_url(args.youtube_url, refresh=args.refresh)
+        elif args.renderdragon_url:
+            result = pipeline.check_renderdragon_url(args.renderdragon_url, refresh=args.refresh)
         else:
             result = pipeline.check_file(args.file, refresh=args.refresh)
     except MusicCheckerError as exc:

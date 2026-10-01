@@ -173,7 +173,18 @@ def _normalized(value: Optional[str]) -> str:
 # continuously). They carry no recording identity and must not invalidate the
 # research cache. Stable identification is already handled by ``research_identity``.
 _VOLATILE_TRACK_FIELDS = frozenset(
-    {"view_count", "raw", "description", "tags", "thumbnail_url", "top_comments", "external_ids"}
+    {
+        "view_count",
+        "raw",
+        "description",
+        "tags",
+        "thumbnail_url",
+        "top_comments",
+        "external_ids",
+        "available",
+        "size_bytes",
+        "content_type",
+    }
 )
 
 
@@ -186,6 +197,10 @@ def research_identity(request: LookupRequest, *, fallback: Optional[str] = None)
         return f"spotify:{_normalized(track.spotify_id)}"
     if track.youtube_id:
         return f"youtube:{_normalized(track.youtube_id)}"
+    if track.renderdragon_id:
+        return f"renderdragon:{_normalized(track.renderdragon_id)}"
+    if track.audio_url:
+        return f"renderdragon-url:{_normalized(track.audio_url)}"
     if fallback:
         return fallback
     payload = {

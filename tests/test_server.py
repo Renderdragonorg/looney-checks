@@ -33,6 +33,12 @@ class _FakePipeline:
             progress("researching", "Fake research complete.")
         return _FakeResult()
 
+    def check_renderdragon_url(self, value, *, progress=None):
+        self.last_value = value
+        if progress:
+            progress("researching", "Fake research complete.")
+        return _FakeResult()
+
     def check_file(self, value, *, progress=None, fallback_title=None):
         self.last_value = value
         self.fallback_title = fallback_title
@@ -98,6 +104,7 @@ class TestServerWithJobs(TestServer):
         self.assertEqual(payload["implementation_steps"][0]["title"], "Install")
         self.assertIn("client_file_upload", payload["request_modes"])
         self.assertIn("youtube_json", payload["request_modes"])
+        self.assertIn("renderdragon_json", payload["request_modes"])
         self.assertIn("research.sources", payload["response_fields"])
         search = next(item for item in payload["endpoints"] if item["path"] == "/youtube/search")
         self.assertEqual(search["method"], "POST")
@@ -133,6 +140,19 @@ class TestServerWithJobs(TestServer):
             payload = json.load(response)
         self.assertEqual(payload["research"]["status"], "complete")
         self.assertEqual(self.pipeline.last_value, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+    def test_check_routes_renderdragon_request(self):
+        link = "https://renderdragon.org/api/music-link?name=Song&url=https%3A%2F%2Fx&id=12"
+        request = Request(
+            f"{self.base_url}/check",
+            data=json.dumps({"renderdragon_url": link}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            payload = json.load(response)
+        self.assertEqual(payload["research"]["status"], "complete")
+        self.assertEqual(self.pipeline.last_value, link)
 
     def test_youtube_search_returns_candidates_with_thumbnails(self):
         request = Request(

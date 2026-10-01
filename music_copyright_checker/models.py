@@ -99,6 +99,15 @@ class TrackMetadata:
     published_at: Optional[str] = None
     view_count: Optional[int] = None
     thumbnail_url: Optional[str] = None
+    # RenderDragon music-link fields (populated when the source is a
+    # renderdragon.org/api/music-link URL).
+    renderdragon_id: Optional[str] = None
+    audio_url: Optional[str] = None  # canonical raw audio file URL (RenderDragon "direct_url")
+    website_url: Optional[str] = None  # human-facing track page (RenderDragon "website_url")
+    filename: Optional[str] = None
+    available: Optional[bool] = None  # server verified the file exists
+    size_bytes: Optional[int] = None
+    content_type: Optional[str] = None
     # Public comments (top/pinned first) and any licence/usage statements the
     # uploader or rights holder made in the description or comments.
     top_comments: List[Comment] = field(default_factory=list)
@@ -259,6 +268,13 @@ def track_metadata_from_dict(data: Dict[str, Any]) -> TrackMetadata:
         published_at=data.get("published_at"),
         view_count=data.get("view_count"),
         thumbnail_url=data.get("thumbnail_url"),
+        renderdragon_id=data.get("renderdragon_id"),
+        audio_url=data.get("audio_url"),
+        website_url=data.get("website_url"),
+        filename=data.get("filename"),
+        available=data.get("available"),
+        size_bytes=data.get("size_bytes"),
+        content_type=data.get("content_type"),
         top_comments=comment_list_from_dict(data.get("top_comments")),
         license_statements=[str(s) for s in (data.get("license_statements") or []) if isinstance(s, str)],
         external_ids=dict(data.get("external_ids") or {}),

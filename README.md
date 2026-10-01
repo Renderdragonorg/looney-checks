@@ -23,6 +23,12 @@ Audio file ───┘
      (it often will be — it's an unofficial, unstable endpoint) it falls back
      to treating the listed artists as "performers" and leaves songwriter/
      producer credits for the AI step to find from public sources.
+   - `renderdragon_source.py` — parses a `renderdragon.org/api/music-link?...`
+     URL, resolves it against the RenderDragon endpoint (with
+     `Accept: application/json`), and maps `name`/`credits`/`category`/`direct_url`
+     onto normalized metadata. It can also generate a link from resource data
+     (`build_music_link`). Only allowlisted `raw.githubusercontent.com` files are
+     accepted as the `url` parameter.
    - `file_source.py` — reads a local audio file's tags (MP3/FLAC/M4A/OGG/WAV/...)
      via `mutagen`, including format-specific ISRC frames (e.g. ID3 `TSRC`).
 
@@ -158,6 +164,12 @@ for candidate in pipeline.search_youtube("Rick Astley - Never Gonna Give You Up"
 
 result2 = pipeline.check_file("/path/to/song.mp3")
 print(result2.to_dict())
+
+# Resolve a RenderDragon music link, then run the same research.
+result3 = pipeline.check_renderdragon_url(
+    "https://renderdragon.org/api/music-link?name=Song&url=...&id=12"
+)
+print(result3.to_dict())
 ```
 
 Or from the command line:
@@ -166,6 +178,7 @@ Or from the command line:
 python -m music_copyright_checker.cli --spotify-url https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6 --pretty
 python -m music_copyright_checker.cli --youtube-url https://www.youtube.com/watch?v=dQw4w9WgXcQ --pretty
 python -m music_copyright_checker.cli --youtube-url "Rick Astley - Never Gonna Give You Up" --pretty
+python -m music_copyright_checker.cli --renderdragon-url "https://renderdragon.org/api/music-link?..." --pretty
 python -m music_copyright_checker.cli --file ./song.mp3 --pretty
 python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --no-ai   # skip AI, just inspect normalized metadata
 python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model openrouter/free --pretty
@@ -175,8 +188,10 @@ python -m music_copyright_checker.cli --spotify-url spotify:track:xxxx --model o
 
 - [AI backends](docs/ai-backends.md) — OpenRouter, OpenCode Go, OpenAI-compatible, and opencode; Exa web search, fallback chains, keys, models, `.env`.
 - [YouTube Data API v3 source](docs/youtube-source.md) — key setup, accepted inputs, normalized fields, quota.
+- [RenderDragon music links](docs/renderdragon-source.md) — building/resolving links, allowlist, normalized fields.
 - [Server API guide](docs/server-api.md) — `/check`, `/youtube/search`, `/jobs`, `/docs`, deployment.
 - [Downloadable binaries](docs/binaries.md) — prebuilt binaries, CLI flags, CI/release.
+- [v0.4.0 release notes](docs/changes-v0.4.0.md) — RenderDragon music-link source.
 - [v0.3.1 release notes](docs/changes-v0.3.1.md) — onedir archives for fast startup.
 - [v0.3.0 changes and migration](docs/changes-v0.3.0.md) — what changed, upgrading from 0.2.x.
 
@@ -343,6 +358,7 @@ music_copyright_checker/
 │                        #              LicenseMatch, ResearchResult, CopyrightCheckResult
 ├── spotify_source.py    # Spotify URL/URI parsing + SpotAPI lookup + normalization
 ├── youtube_source.py    # YouTube Data API v3 video lookup + search + normalization
+├── renderdragon_source.py  # RenderDragon music-link build/resolve + normalization
 ├── file_source.py       # local audio file tag extraction (mutagen)
 ├── prompts.py            # the licensing-research prompt template
 ├── openrouter_client.py  # OpenAI-compatible REST client (server tool or Exa tool loop)

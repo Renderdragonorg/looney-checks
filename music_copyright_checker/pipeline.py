@@ -60,6 +60,11 @@ from .cache import (
 )
 from .errors import InvalidYouTubeURLError, MusicCheckerError, YouTubeLookupError
 from .file_source import FileSource
+from .renderdragon_source import (
+    RenderDragonSource,
+    parse_music_link,
+    renderdragon_identity,
+)
 from .models import (
     Credit,
     CopyrightCheckResult,
@@ -137,6 +142,7 @@ class Pipeline:
     ) -> None:
         self._spotify = SpotifySource(language=spotify_language)
         self._youtube = YouTubeSource(api_key=youtube_api_key)
+        self._renderdragon = RenderDragonSource()
         self._file = FileSource()
         self._run_ai_research = run_ai_research
         self._ai_backend = ai_backend
@@ -393,6 +399,56 @@ class Pipeline:
         if self._cache is not None:
             self._cache.set(query_key, {"video_id": video_id}, self._metadata_ttl_seconds)
         return video_id
+
+    def check_renderdragon_url(
+        self,
+        link: str,
+        *,
+        progress: Optional[Callable[[str, str], None]] = None,
+        refresh: bool = False,
+    ) -> CopyrightCheckResult:
+        """Resolve a renderdragon.org music link, then run AI licensing research on it.
+
+        Mirrors :meth:`check_youtube_url`: the resolved metadata/credits are
+        cached by RenderDragon resource id (falling back to the raw audio URL),
+        then the normalized request is handed to the AI researcher.
+        """
+        if progress:
+            progress("identifying_track", "Resolving the RenderDragon music link.")
+        params = parse_music_link(link)
+        identity = renderdragon_identity(params)
+        metadata_cache_hit = False
+        track: TrackMetadata
+        credits_: TrackCredits
+        cache_key = metadata_cache_key("renderdragon", identity)
+        cached = None if refresh or self._cache is None else self._cache.get(cache_key)
+        if cached is not None:
+            try:
+                track = track_metadata_from_dict(cached.value["track"])
+                credits_ = track_credits_from_dict(cached.value["credits"])
+                metadata_cache_hit = True
+            except (AttributeError, KeyError, TypeError, ValueError):
+                cached = None
+        if cached is None:
+            track, credits_ = self._renderdragon.fetch_params(params)
+            if self._cache is not None:
+                self._cache.set(
+                    cache_key,
+                    {"track": track.to_dict(), "credits": credits_.to_dict()},
+                    self._metadata_ttl_seconds,
+                )
+        request = LookupRequest(
+            source="renderdragon",
+            input_ref=link,
+            track=track,
+            credits=credits_,
+        )
+        return self._run(
+            request,
+            progress=progress,
+            refresh=refresh,
+            metadata_cache_hit=metadata_cache_hit,
+        )
 
     def check_file(
         self,
