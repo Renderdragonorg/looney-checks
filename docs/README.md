@@ -15,6 +15,7 @@ Guides for the music copyright checker backend.
 
 | Guide | What it covers |
 | --- | --- |
+| [v0.4.1 release notes](changes-v0.4.1.md) | RenderDragon resource repo moved to the `Renderdragonorg` GitHub org |
 | [v0.4.0 release notes](changes-v0.4.0.md) | RenderDragon music-link source; `audio_url`/`renderdragon_id` fields |
 | [v0.3.7 release notes](changes-v0.3.7.md) | Creator-declared licences from video comments; `free_to_use` verdicts |
 | [v0.3.3 release notes](changes-v0.3.3.md) | Exa web search, OpenAI-compatible backend, AI fallback chains, OpenCode Go |

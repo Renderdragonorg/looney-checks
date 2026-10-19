@@ -64,7 +64,7 @@ from music_copyright_checker import build_music_link, parse_music_link, RenderDr
 
 link = build_music_link({
     "title": "11 AM - Animal Crossing City Folk OST",
-    "download_url": "https://github.com/Yxmura/resources_renderdragon/blob/main/music/11_AM.mp3",
+    "download_url": "https://github.com/Renderdragonorg/resources_renderdragon/blob/main/music/11_AM.mp3",
     "credit": "Nintendo",
     "category": "music",
     "filetype": "mp3",
@@ -84,7 +84,7 @@ missing.
 
 The endpoint only accepts raw files from these repos (it is not an open proxy):
 
-- `raw.githubusercontent.com/Yxmura/resources_renderdragon/…`
+- `raw.githubusercontent.com/Renderdragonorg/resources_renderdragon/…`
 - `raw.githubusercontent.com/Coder-soft/Minecraft-Creator-Safe-Playlist/…`
 
 `is_allowlisted_source(url)` exposes the same check.

@@ -36,12 +36,12 @@ from music_copyright_checker.renderdragon_source import (
 )
 
 RAW_URL = (
-    "https://raw.githubusercontent.com/Yxmura/resources_renderdragon/"
+    "https://raw.githubusercontent.com/Renderdragonorg/resources_renderdragon/"
     "refs/heads/main/music/11_AM.mp3"
 )
 LINK = (
     "https://renderdragon.org/api/music-link"
-    "?name=11+AM&url=https%3A%2F%2Fraw.githubusercontent.com%2FYxmura%2F"
+    "?name=11+AM&url=https%3A%2F%2Fraw.githubusercontent.com%2FRenderdragonorg%2F"
     "resources_renderdragon%2Frefs%2Fheads%2Fmain%2Fmusic%2F11_AM.mp3"
     "&credits=Nintendo&category=music&ext=mp3&file=11_AM.mp3&id=123"
 )
@@ -84,7 +84,7 @@ class TestBuildMusicLink(unittest.TestCase):
         link = build_music_link(
             {
                 "title": "11 AM - Animal Crossing City Folk OST",
-                "download_url": "https://github.com/Yxmura/resources_renderdragon/blob/main/music/11_AM.mp3",
+                "download_url": "https://github.com/Renderdragonorg/resources_renderdragon/blob/main/music/11_AM.mp3",
                 "credit": "Nintendo",
                 "category": "music",
                 "filetype": "mp3",
@@ -96,7 +96,7 @@ class TestBuildMusicLink(unittest.TestCase):
         self.assertEqual(params["name"], "11 AM - Animal Crossing City Folk OST")
         self.assertEqual(
             params["url"],
-            "https://raw.githubusercontent.com/Yxmura/resources_renderdragon/main/music/11_AM.mp3",
+            "https://raw.githubusercontent.com/Renderdragonorg/resources_renderdragon/main/music/11_AM.mp3",
         )
         self.assertEqual(params["credits"], "Nintendo")
         self.assertEqual(params["ext"], "mp3")

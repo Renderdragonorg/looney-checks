@@ -45,7 +45,7 @@ MAX_NETWORK_ATTEMPTS = 3
 MAX_RAW_PAYLOAD_CHARS = 4000
 
 ALLOWLISTED_SOURCE_PREFIXES = (
-    "https://raw.githubusercontent.com/Yxmura/resources_renderdragon/",
+    "https://raw.githubusercontent.com/Renderdragonorg/resources_renderdragon/",
     "https://raw.githubusercontent.com/Coder-soft/Minecraft-Creator-Safe-Playlist/",
 )
 
