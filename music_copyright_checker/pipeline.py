@@ -86,6 +86,70 @@ def _query_identity(query: str) -> str:
     return re.sub(r"\s+", " ", (query or "").strip().casefold())
 
 
+# Subscription-only production-music catalogs. They market themselves as
+# "royalty-free", but the licence exists only for creators with an active paid
+# subscription, so their tracks must never surface as `free_to_use`.
+_SUBSCRIPTION_LIBRARY_RE = re.compile(
+    r"\b(epidemic\s?sound|artlist|artgrid|musicbed|soundstripe|uppbeat|premiumbeat)\b",
+    re.IGNORECASE,
+)
+_SUBSCRIPTION_LIBRARY_DISPLAY = {
+    "premiumbeat": "PremiumBeat",
+}
+
+
+def _subscription_libraries_in(texts: Sequence[Optional[str]]) -> list[str]:
+    """Return display-ready names of subscription libraries mentioned in `texts`."""
+    names: List[str] = []
+    for text in texts:
+        if not text:
+            continue
+        match = _SUBSCRIPTION_LIBRARY_RE.search(text)
+        if not match:
+            continue
+        name = _SUBSCRIPTION_LIBRARY_DISPLAY.get(
+            match.group(1).lower(), match.group(1).title()
+        )
+        if name.lower() not in {n.lower() for n in names}:
+            names.append(name)
+    return names
+
+
+def _guard_subscription_library_result(result: "CopyrightCheckResult") -> None:
+    """Correct over-permissive verdicts for subscription-library tracks.
+
+    The AI researcher can read the library's own "royalty-free" marketing and
+    report a paid-subscription catalog track as `free_to_use`. When the track's
+    label or a research match names such a library, any `free_to_use` verdict
+    is downgraded to `clearance_required` with an explanatory caveat. Runs on
+    cached results too, so stale AI output is corrected without waiting for the
+    research cache to expire.
+    """
+    assessment = result.research.usage_assessment
+    if "free_to_use" not in (
+        assessment.video_verdict,
+        assessment.social_media_verdict,
+        assessment.reality_tv_verdict,
+    ):
+        return
+    texts = [result.request.track.label or ""]
+    for match in result.research.matches:
+        texts.extend([match.label, match.publisher, match.rights_holder, match.license_type])
+    libraries = _subscription_libraries_in(texts)
+    if not libraries:
+        return
+    library = ", ".join(libraries)
+    for attr in ("video_verdict", "social_media_verdict", "reality_tv_verdict"):
+        if getattr(assessment, attr) == "free_to_use":
+            setattr(assessment, attr, "clearance_required")
+    caveat = (
+        f"{library} is a paid subscription library: its catalog is only cleared "
+        "for creators with an active subscription, so this track is not free to use."
+    )
+    if caveat not in assessment.caveats:
+        assessment.caveats.append(caveat)
+
+
 class Pipeline:
     """Wires together the Spotify/YouTube/file sources and the AI researcher."""
 
@@ -606,6 +670,7 @@ class Pipeline:
                         )
         ai_meta["metadata_cache_hit"] = metadata_cache_hit
         result = CopyrightCheckResult(request=request, research=research_result, ai_meta=ai_meta)
+        _guard_subscription_library_result(result)
         if progress:
             progress("complete", "Copyright and licensing research finished.")
         return result

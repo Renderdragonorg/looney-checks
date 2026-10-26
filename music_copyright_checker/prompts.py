@@ -48,7 +48,7 @@ RESULT_SCHEMA_HINT = """{
 }"""
 
 # Bump this whenever the research instructions or output policy changes.
-RESEARCH_PROMPT_VERSION = "6"
+RESEARCH_PROMPT_VERSION = "7"
 
 MAX_DESCRIPTION_IN_PROMPT = 4000
 
@@ -130,6 +130,13 @@ Research task:
    noncommercial, cover/remix only, no Content ID registration, platform-limited, etc.);
    `clearance_required` when permission is needed; and keep
    `likely_not_permitted_without_permission` for a known restricted recording.
+   Subscription production-music libraries (for example Epidemic Sound, Artlist,
+   Musicbed, Soundstripe, Uppbeat, PremiumBeat) market their catalogs as
+   "royalty-free", but that clearance exists only for creators with an active
+   paid subscription. An active subscription is a payment, so a track whose
+   rights holder, label, or publisher is such a library is NOT `free_to_use`:
+   use `clearance_required`, unless the track itself is genuinely public domain
+   or the library verifiably grants a free tier and you cite that source.
 5. Distinguish legal permission from platform behavior: Content ID claims, monetization sharing,
    a platform music-library license, short incidental use, or a video remaining online do not by
    themselves grant general permission. Platform-library permissions may be limited to one
